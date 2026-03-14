@@ -1,13 +1,47 @@
 import { logger } from "../utils/logger.js";
 
-export function errorHandler(err, _req, res, _next) {
-  logger.error(err.message, { stack: err.stack });
+// ── Error factory ────────────────────────────────
+// Usage: throw createError(404, 'Song not found')
+//        throw createError(422, 'Validation failed', { errors: [...] })
+export function createError(status, message, extras = {}) {
+  const err = new Error(message);
+  err.status = status;
+  Object.assign(err, extras);
+  return err;
+}
 
-  const status = err.status || 500;
-  res.status(status).json({
+// ── Async route wrapper ──────────────────────────
+// Catches rejected promises and forwards to Express error handler.
+// Usage: router.get('/songs', asyncHandler(async (req, res) => { ... }))
+export function asyncHandler(fn) {
+  return (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+}
+
+// ── Central error handler (must be last middleware) ──
+export function errorHandler(err, _req, res, _next) {
+  const status =
+    err.status || err.statusCode || (res.statusCode >= 400 ? res.statusCode : 500);
+
+  // Log at appropriate level based on status code
+  if (status >= 500) {
+    logger.error(err.message, { status, stack: err.stack });
+  } else if (status >= 400) {
+    logger.warn(err.message, { status });
+  }
+
+  // Consistent error envelope matching Flowline pattern
+  const body = {
     error: {
       message: err.message || "Internal server error",
-      ...(process.env.NODE_ENV !== "production" && { stack: err.stack }),
+      status,
+      ...(err.errors && { errors: err.errors }),
+      ...(process.env.NODE_ENV !== "production" && {
+        stack: err.stack,
+        name: err.name,
+      }),
     },
-  });
+  };
+
+  res.status(status).json(body);
 }
+

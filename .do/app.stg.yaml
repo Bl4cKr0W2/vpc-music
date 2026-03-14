@@ -15,7 +15,7 @@ region: nyc
 
 databases:
   - engine: PG
-    name: stg-vpc-music-db
+    name: vpc-music-stg
     num_nodes: 1
     size: db-s-dev-database
     version: "16"
@@ -32,7 +32,7 @@ services:
 
     instance_count: 1
     instance_size_slug: professional-xs
-    http_port: 3000
+    http_port: 3001
 
     health_check:
       http_path: /health
@@ -50,17 +50,17 @@ services:
         value: staging
       - key: DATABASE_URL
         scope: RUN_TIME
-        value: ${stg-vpc-music-db.DATABASE_URL}
+        value: ${vpc-music-stg.DATABASE_URL}
       - key: JWT_SECRET
         type: SECRET
         value: REPLACE_ME
       - key: JWT_EXPIRES_IN
         value: "7d"
       - key: CORS_ORIGIN
-        value: https://stg-app.vpcmusic.com
+        value: https://stg-app.vpcmusic.life
       - key: FRONTEND_URL
-        value: https://stg-app.vpcmusic.com
+        value: https://stg-app.vpcmusic.life
 
 domains:
-  - domain: stg-api.vpcmusic.com
+  - domain: stg-api.vpcmusic.life
     type: PRIMARY

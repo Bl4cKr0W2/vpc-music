@@ -789,6 +789,22 @@ vpc-music/
 
 ---
 
+## Roadmap / TODO
+
+> Tracked tasks for upcoming implementation work.
+
+- [ ] **Landing page** — public marketing/welcome page shown to unauthenticated visitors; logged-in users automatically redirect to the dashboard
+- [ ] **Auth-gated routing** — if authenticated → `/dashboard`; if not → `/` (landing page); protect app routes behind auth guard
+- [ ] **Dashboard page** — post-login home view (recent songs, upcoming setlists, quick actions)
+- [ ] **Registration flow** — sign-up page with email/password, linked from landing page
+- [ ] **Forgot password / reset** — password recovery flow
+- [ ] **PDF import pipeline** — geometry-aware PDF → ChordPro conversion via PDF.co
+- [ ] **Real-time sync** — Socket.io live setlist conductor mode
+- [ ] **Offline mode** — service worker + local cache for field use
+- [ ] **Auto-scroll** — configurable tempo-based lyrics scrolling during performance
+
+---
+
 ## Getting Started
 
 ### Prerequisites
@@ -819,8 +835,8 @@ pnpm db:push
 pnpm dev
 ```
 
-- **API** runs at `http://localhost:3000`
-- **Web** runs at `http://localhost:5173` (proxies `/api` → API)
+- **API** runs at `http://localhost:3001`
+- **Web** runs at `http://localhost:5175` (proxies `/api` → API)
 
 ## License
 

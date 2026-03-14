@@ -15,7 +15,7 @@ region: nyc
 
 databases:
   - engine: PG
-    name: vpc-music-db
+    name: vpc-music-prd
     num_nodes: 1
     size: db-s-dev-database
     version: "16"
@@ -32,7 +32,7 @@ services:
 
     instance_count: 1
     instance_size_slug: professional-xs
-    http_port: 3000
+    http_port: 3001
 
     health_check:
       http_path: /health
@@ -50,20 +50,20 @@ services:
         value: production
       - key: DATABASE_URL
         scope: RUN_TIME
-        value: ${vpc-music-db.DATABASE_URL}
+        value: ${vpc-music-prd.DATABASE_URL}
       - key: JWT_SECRET
         type: SECRET
         value: REPLACE_ME
       - key: JWT_EXPIRES_IN
         value: "7d"
       - key: CORS_ORIGIN
-        value: https://app.vpcmusic.com
+        value: https://app.vpcmusic.life
       - key: FRONTEND_URL
-        value: https://app.vpcmusic.com
+        value: https://app.vpcmusic.life
       - key: PDF_CO_API_KEY
         type: SECRET
         value: REPLACE_ME
 
 domains:
-  - domain: api.vpcmusic.com
+  - domain: api.vpcmusic.life
     type: PRIMARY

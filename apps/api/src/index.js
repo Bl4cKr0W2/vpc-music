@@ -4,14 +4,14 @@ import { Server } from "socket.io";
 import { app } from "./app.js";
 import { logger } from "./utils/logger.js";
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3001;
 
 const server = createServer(app);
 
 // Socket.io for real-time features (live setlist sync, etc.)
 const io = new Server(server, {
   cors: {
-    origin: process.env.CORS_ORIGIN || "http://localhost:5173",
+    origin: process.env.CORS_ORIGIN || "http://localhost:5175",
     credentials: true,
   },
 });

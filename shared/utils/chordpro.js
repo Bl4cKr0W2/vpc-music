@@ -40,7 +40,17 @@ export function parseChordPro(input) {
     }
 
     // Standalone directive: {directive}
-    if (/^\{\w+\}$/.test(trimmed)) continue;
+    if (/^\{\w+\}$/.test(trimmed)) {
+      const key = trimmed.slice(1, -1);
+      if (key === "start_of_chorus" || key === "soc") {
+        if (currentSection.lines.length > 0) sections.push(currentSection);
+        currentSection = { name: "Chorus", lines: [] };
+      } else if (key === "end_of_chorus" || key === "eoc") {
+        sections.push(currentSection);
+        currentSection = { name: "", lines: [] };
+      }
+      continue;
+    }
 
     // Blank line — section break
     if (trimmed === "") {

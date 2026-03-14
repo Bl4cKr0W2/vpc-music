@@ -22,7 +22,7 @@
   // If present, these are used when running: pnpm run deploy staging
   "STG_DROPLET_NAME": "stg-vpc-music-api",
   "STG_DEPLOY_PATH": "~/vpc-music/api-stg",
-  "STG_CERTBOT_DOMAIN": "stg-api.vpcmusic.com",
+  "STG_CERTBOT_DOMAIN": "stg-api.vpcmusic.life",
   "STG_FIREWALL_NAME": "stg-vpc-music-api-firewall",
 
   // ── SSH connection ───────────────────────────────────────────────
@@ -40,9 +40,9 @@
   "DEPLOY_PORT": 22,
 
   // ── SSL / Nginx ──────────────────────────────────────────────────
-  // Your API domain (e.g. api.vpcmusic.com)
+  // Your API domain (e.g. api.vpcmusic.life)
   // nginx + certbot will issue a Let's Encrypt cert automatically on first deploy
-  "CERTBOT_DOMAIN": "api.vpcmusic.com",
+  "CERTBOT_DOMAIN": "api.vpcmusic.life",
 
   // Email for Let's Encrypt expiry notices
   "CERTBOT_EMAIL": "",
