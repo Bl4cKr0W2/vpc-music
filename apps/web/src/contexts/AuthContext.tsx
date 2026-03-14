@@ -1,6 +1,14 @@
-import { createContext, useContext, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useCallback,
+  type ReactNode,
+} from "react";
+import { authApi } from "@/lib/api-client";
 
-interface User {
+export interface User {
   id: string;
   email: string;
   displayName: string;
@@ -10,27 +18,65 @@ interface User {
 interface AuthContextValue {
   user: User | null;
   isAuthenticated: boolean;
+  isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
-  logout: () => void;
+  register: (email: string, password: string, displayName?: string) => Promise<void>;
+  logout: () => Promise<void>;
+  refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
-  const login = async (_email: string, _password: string) => {
-    // TODO: call /api/auth/login
-    throw new Error("Not implemented");
-  };
+  // On mount, try to restore session from cookie
+  const refreshUser = useCallback(async () => {
+    try {
+      const { user: me } = await authApi.me();
+      setUser(me);
+    } catch {
+      setUser(null);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
 
-  const logout = () => {
+  useEffect(() => {
+    refreshUser();
+  }, [refreshUser]);
+
+  const login = useCallback(async (email: string, password: string) => {
+    const { user: loggedIn } = await authApi.login(email, password);
+    setUser(loggedIn);
+  }, []);
+
+  const register = useCallback(
+    async (email: string, password: string, displayName?: string) => {
+      const { user: created } = await authApi.register({ email, password, displayName });
+      setUser(created);
+    },
+    []
+  );
+
+  const logout = useCallback(async () => {
+    await authApi.logout();
     setUser(null);
-    // TODO: call /api/auth/logout
-  };
+  }, []);
 
   return (
-    <AuthContext.Provider value={{ user, isAuthenticated: !!user, login, logout }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        isAuthenticated: !!user,
+        isLoading,
+        login,
+        register,
+        logout,
+        refreshUser,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );
