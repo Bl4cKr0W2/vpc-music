@@ -1,0 +1,17 @@
+# Development: PostgreSQL only — API and Web run natively via pnpm dev
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: vpc-music-db
+    restart: unless-stopped
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    environment:
+      POSTGRES_DB: vpc_music
+      POSTGRES_USER: ${DB_USER:-vpc_music}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-vpc_music_dev}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:

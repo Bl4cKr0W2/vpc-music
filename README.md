@@ -2,6 +2,9 @@
 
 A feature-rich song management and performance tool — blending the best of OnSong, our current site, and solutions to real pain points musicians face on stage and in rehearsal. **VPC Music uses [ChordPro](https://www.chordpro.org/) as its native song format**, with built-in converters to migrate existing `.chrd` and OnSong libraries.
 
+> **Monorepo**: Express API · PostgreSQL/Drizzle · React/Vite SPA · RBAC · ChordPro Engine  
+> **Stack**: pnpm workspaces · React 19 · Vite 7 · TypeScript · Tailwind CSS 4 · shadcn/ui · Express.js · Drizzle ORM · PostgreSQL 16 · Socket.io · Docker
+
 > **📂 Existing Assets:** We have a Dropbox full of music items (chord charts, lyrics, recordings, etc.) that can be referenced or imported as needed during development and migration.
 
 ---
@@ -658,9 +661,166 @@ An extensive look at existing tools in the chord chart, setlist, and worship mus
 
 ---
 
+## 🏗️ Architecture & Repository Structure
+
+```
+vpc-music/
+├── .do/                        # DigitalOcean App Platform configs
+│   ├── app.yaml                #   Production deployment
+│   └── app.stg.yaml            #   Staging deployment
+├── .github/workflows/          # CI/CD pipeline
+│   └── ci.yml                  #   lint → typecheck → test → build → deploy
+├── apps/
+│   ├── api/                    # @vpc-music/api — Express.js backend
+│   │   ├── src/
+│   │   │   ├── index.js        #   Entry point (HTTP server + Socket.io)
+│   │   │   ├── app.js          #   Express app (middleware + route mounting)
+│   │   │   ├── db.js           #   PostgreSQL connection (Drizzle)
+│   │   │   ├── config/         #   env.js
+│   │   │   ├── schema/         #   Drizzle ORM table definitions
+│   │   │   │   ├── users.js
+│   │   │   │   ├── songs.js
+│   │   │   │   ├── setlists.js
+│   │   │   │   └── index.js
+│   │   │   ├── features/       #   Domain-driven feature modules
+│   │   │   │   ├── songs/      #     CRUD + import/export routes
+│   │   │   │   ├── setlists/   #     Setlist management
+│   │   │   │   └── platform/   #     User settings, preferences
+│   │   │   ├── routes/         #   Top-level routes (auth)
+│   │   │   ├── middlewares/    #   auth, errorHandler, httpLogger
+│   │   │   └── utils/          #   logger
+│   │   ├── drizzle/            #   Migrations output
+│   │   ├── drizzle.config.js
+│   │   ├── Dockerfile
+│   │   └── package.json
+│   └── web/                    # @vpc-music/web — React 19 SPA
+│       ├── src/
+│       │   ├── main.tsx        #   App entry
+│       │   ├── router.tsx      #   Route definitions (react-router 7)
+│       │   ├── components/
+│       │   │   ├── layout/     #     AppShell, nav, header
+│       │   │   ├── ui/         #     shadcn/ui primitives (to be added)
+│       │   │   └── shared/     #     Cross-feature components
+│       │   ├── pages/
+│       │   │   ├── auth/       #     LoginPage
+│       │   │   ├── songs/      #     SongListPage, SongViewPage
+│       │   │   ├── setlists/   #     SetlistsPage
+│       │   │   ├── settings/   #     SettingsPage
+│       │   │   └── HomePage.tsx
+│       │   ├── contexts/       #   ThemeContext, AuthContext
+│       │   ├── lib/            #   api-client, utils (cn)
+│       │   └── styles/         #   Tailwind entry
+│       ├── vite.config.ts
+│       ├── tsconfig.json
+│       ├── Dockerfile
+│       ├── nginx.conf          #   SPA serving config
+│       └── package.json
+├── shared/                     # @vpc-music/shared — models, constants, utils
+│   ├── constants/              #   music.js (scales, keys, Nashville), roles.js
+│   ├── models/                 #   song.js (Zod schemas)
+│   ├── utils/                  #   chordpro.js (parser), transpose.js
+│   ├── index.js
+│   └── package.json
+├── deploy/nginx/               # Production Nginx reverse proxy config
+├── scripts/                    # Build, deploy, sync, preflight tooling
+│   ├── build-router.mjs
+│   ├── deploy-router.ps1
+│   ├── preflight.mjs
+│   ├── check-shared-drift.mjs
+│   ├── sync-shared.ps1
+│   └── db-push.mjs
+├── docs/                       # Project documentation
+├── compose.yml                 # Dev: PostgreSQL only
+├── compose.stg.yml             # Staging: full-stack Docker
+├── pnpm-workspace.yaml
+├── package.json                # Root workspace scripts
+└── .env.example
+```
+
+### Architecture Diagram
+
+```
+┌─────────────────────────────────────────────────────┐
+│                   pnpm workspace                     │
+│                                                     │
+│  ┌──────────────┐  ┌──────────────┐  ┌───────────┐ │
+│  │   apps/web   │  │   apps/api   │  │  shared/   │ │
+│  │  React 19    │  │  Express.js  │  │  Zod +     │ │
+│  │  Vite 7      │→→│  Drizzle ORM │  │  ChordPro  │ │
+│  │  TW4+shadcn  │  │  PostgreSQL  │  │  Transpose │ │
+│  │  TanStack Q  │  │  Socket.io   │  │  Constants │ │
+│  └──────┬───────┘  └──────┬───────┘  └───────────┘ │
+│         │    /api proxy    │             ↑           │
+│         └─────────────────→┘        workspace:*      │
+│                                                     │
+│  compose.yml          → Dev: Postgres only           │
+│  compose.stg.yml      → Staging: full-stack Docker   │
+│  .do/app.yaml         → DO App Platform (prod)       │
+│  .github/workflows/   → CI: lint→typecheck→test→     │
+│                          build→deploy                │
+└─────────────────────────────────────────────────────┘
+```
+
+### API Route Map
+
+| Route Prefix | Module | Description |
+|---|---|---|
+| `/health` | inline | Health check |
+| `/api/auth` | `routes/auth.js` | Register, login, logout |
+| `/api/songs` | `features/songs/` | CRUD, import (.chrd, OnSong, PDF), export (ChordPro, OnSong, PDF) |
+| `/api/setlists` | `features/setlists/` | Setlist CRUD, song ordering |
+| `/api/platform` | `features/platform/` | User settings, preferences |
+
+### Key Scripts
+
+| Command | Description |
+|---|---|
+| `pnpm dev` | Start API + Web concurrently |
+| `pnpm build` | Build web (or `build:api`, `build:web`) |
+| `pnpm test` | Run web tests |
+| `pnpm typecheck` | TypeScript check |
+| `pnpm deploy` | Route deploy by environment |
+| `pnpm db:push` | Push Drizzle schema to DB |
+| `pnpm db:studio` | Open Drizzle Studio |
+| `pnpm docker:up` | Start dev PostgreSQL |
+| `pnpm docker:stg` | Full staging stack |
+| `pnpm preflight` | Pre-deploy checks |
+| `pnpm sync:shared` | Sync `shared/` → `apps/api/shared/` |
+
+---
+
 ## Getting Started
 
-> _Coming soon — setup instructions, tech stack, and contribution guidelines._
+### Prerequisites
+- **Node.js 20+**
+- **pnpm 9.15+** (`corepack enable && corepack prepare pnpm@9.15.0 --activate`)
+- **Docker** (for PostgreSQL, or use a local Postgres)
+
+### Setup
+
+```bash
+# 1. Clone
+git clone <repo-url> vpc-music && cd vpc-music
+
+# 2. Install dependencies
+pnpm install
+
+# 3. Environment
+cp .env.example .env
+cp apps/api/.env.example apps/api/.env
+
+# 4. Start PostgreSQL
+pnpm docker:up
+
+# 5. Push database schema
+pnpm db:push
+
+# 6. Start development
+pnpm dev
+```
+
+- **API** runs at `http://localhost:3000`
+- **Web** runs at `http://localhost:5173` (proxies `/api` → API)
 
 ## License
 

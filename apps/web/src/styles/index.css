@@ -1,0 +1,153 @@
+@import "tailwindcss";
+
+/* ── Vidaloka — ACT brand serif font ─────────────────────────── */
+@font-face {
+  font-family: "Vidaloka";
+  src: url("/fonts/Vidaloka-Regular.ttf") format("truetype");
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* ── ACT Brand Palette ───────────────────────────────────────────
+ *  Dark Blue   #000435  → 235 100% 10%
+ *  Gold        #ca9762  → 31  50%  59%
+ *  Light Gold  #dbb882  → 36  55%  68%
+ *  Dark Paper  #122b44  → 210 58%  17%
+ *  Dark Gray   #6c757d  → 208 7%   46%
+ *  Light Gray  #f8f9fa  → 210 17%  98%
+ *  Divider     #e0e0e0  → 0   0%   88%
+ * ────────────────────────────────────────────────────────────── */
+
+@theme {
+  /* -- Brand tokens (usable as Tailwind utilities) ------------- */
+  --color-brand-dark-blue: oklch(0.15 0.08 264);
+  --color-brand-gold: oklch(0.70 0.10 60);
+  --color-brand-light-gold: oklch(0.79 0.09 68);
+  --color-brand-dark-paper: oklch(0.26 0.05 240);
+
+  /* -- Font families ------------------------------------------- */
+  --font-serif: "Vidaloka", "Times New Roman", serif;
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+
+  /* -- Border radius ------------------------------------------ */
+  --radius-lg: 0.5rem;
+  --radius-md: calc(var(--radius-lg) - 2px);
+  --radius-sm: calc(var(--radius-lg) - 4px);
+}
+
+/* ── Light mode (default) ─────────────────────────────────────── */
+:root {
+  --background: 210 17% 98%;
+  --foreground: 235 100% 10%;
+
+  --card: 0 0% 100%;
+  --card-foreground: 235 100% 10%;
+
+  --popover: 0 0% 100%;
+  --popover-foreground: 235 100% 10%;
+
+  --primary: 235 100% 10%;
+  --primary-foreground: 0 0% 100%;
+
+  --secondary: 31 50% 59%;
+  --secondary-foreground: 235 100% 10%;
+
+  --muted: 210 17% 94%;
+  --muted-foreground: 208 7% 46%;
+
+  --accent: 36 55% 68%;
+  --accent-foreground: 235 100% 10%;
+
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 0 0% 100%;
+
+  --border: 0 0% 88%;
+  --input: 0 0% 88%;
+  --ring: 31 50% 59%;
+
+  --chart-1: 31 50% 59%;
+  --chart-2: 235 100% 10%;
+  --chart-3: 36 55% 68%;
+  --chart-4: 208 7% 46%;
+  --chart-5: 210 58% 17%;
+}
+
+/* ── Dark mode ────────────────────────────────────────────────── */
+.dark {
+  --background: 235 100% 10%;
+  --foreground: 0 0% 100%;
+
+  --card: 210 58% 17%;
+  --card-foreground: 0 0% 100%;
+
+  --popover: 210 58% 17%;
+  --popover-foreground: 0 0% 100%;
+
+  --primary: 36 55% 68%;
+  --primary-foreground: 235 100% 10%;
+
+  --secondary: 31 50% 59%;
+  --secondary-foreground: 235 100% 10%;
+
+  --muted: 210 58% 17%;
+  --muted-foreground: 210 17% 80%;
+
+  --accent: 31 50% 59%;
+  --accent-foreground: 0 0% 100%;
+
+  --destructive: 0 62% 50%;
+  --destructive-foreground: 0 0% 100%;
+
+  --border: 208 7% 30%;
+  --input: 208 7% 30%;
+  --ring: 36 55% 68%;
+
+  --chart-1: 36 55% 68%;
+  --chart-2: 31 50% 59%;
+  --chart-3: 210 17% 80%;
+  --chart-4: 208 7% 46%;
+  --chart-5: 210 58% 17%;
+}
+
+/* ── Base layer ────────────────────────────────────────────────── */
+@layer base {
+  * {
+    @apply border-[hsl(var(--border))];
+  }
+
+  body {
+    @apply bg-[hsl(var(--background))] text-[hsl(var(--foreground))];
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Headings use the brand serif font */
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-serif);
+    letter-spacing: -0.01em;
+  }
+
+  h1 { @apply text-4xl leading-tight; }
+  h2 { @apply text-3xl leading-snug; }
+  h3 { @apply text-2xl leading-snug; }
+  h4 { @apply text-xl leading-normal; }
+  h5 { @apply text-lg leading-normal; }
+  h6 { @apply text-base leading-relaxed; }
+}
+
+/* ── Utility classes ──────────────────────────────────────────── */
+@layer utilities {
+  .font-brand {
+    font-family: var(--font-serif);
+  }
+
+  .text-gold {
+    color: hsl(31 50% 59%);
+  }
+
+  .bg-dark-blue {
+    background-color: hsl(235 100% 10%);
+  }
+}

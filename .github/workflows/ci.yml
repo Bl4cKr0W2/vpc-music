@@ -1,0 +1,180 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  install:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/cache/save@v4
+        with:
+          path: |
+            node_modules
+            apps/*/node_modules
+            shared/node_modules
+          key: deps-${{ hashFiles('pnpm-lock.yaml') }}
+
+  typecheck:
+    needs: install
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: actions/cache/restore@v4
+        with:
+          path: |
+            node_modules
+            apps/*/node_modules
+            shared/node_modules
+          key: deps-${{ hashFiles('pnpm-lock.yaml') }}
+      - run: pnpm typecheck
+
+  lint:
+    needs: install
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: actions/cache/restore@v4
+        with:
+          path: |
+            node_modules
+            apps/*/node_modules
+            shared/node_modules
+          key: deps-${{ hashFiles('pnpm-lock.yaml') }}
+      - run: pnpm lint
+        continue-on-error: true
+
+  test:
+    needs: install
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: actions/cache/restore@v4
+        with:
+          path: |
+            node_modules
+            apps/*/node_modules
+            shared/node_modules
+          key: deps-${{ hashFiles('pnpm-lock.yaml') }}
+      - run: pnpm test
+
+  verify-sync:
+    needs: install
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: actions/cache/restore@v4
+        with:
+          path: |
+            node_modules
+            apps/*/node_modules
+            shared/node_modules
+          key: deps-${{ hashFiles('pnpm-lock.yaml') }}
+      - name: Verify shared/ sync
+        run: node scripts/check-shared-drift.mjs
+
+  build:
+    needs: [typecheck, lint, test, verify-sync]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: actions/cache/restore@v4
+        with:
+          path: |
+            node_modules
+            apps/*/node_modules
+            shared/node_modules
+          key: deps-${{ hashFiles('pnpm-lock.yaml') }}
+      - run: pnpm build:web
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: apps/web/dist
+
+  deploy-staging:
+    name: Deploy Staging API
+    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+    needs: build
+    runs-on: ubuntu-latest
+    env:
+      DOCR_REGISTRY: ${{ secrets.DO_REGISTRY }}
+      DO_STAGING_APP_ID: ${{ secrets.DO_STAGING_APP_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Sync shared → apps/api/shared
+        run: |
+          rm -rf apps/api/shared
+          rsync -a --exclude='node_modules' shared/ apps/api/shared/
+
+      - name: Install doctl
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DO_API_TOKEN }}
+
+      - name: Authenticate Docker to DOCR
+        run: doctl registry login --expiry-seconds 1200
+
+      - name: Build and push staging image
+        env:
+          GIT_SHA: ${{ github.sha }}
+        run: |
+          if [ -z "$DOCR_REGISTRY" ]; then
+            echo "DO_REGISTRY secret is required"
+            exit 1
+          fi
+
+          IMAGE="registry.digitalocean.com/${DOCR_REGISTRY}/vpc-music-api"
+          SHORT_SHA="${GIT_SHA::7}"
+
+          docker build \
+            -f apps/api/Dockerfile \
+            -t "${IMAGE}:staging" \
+            -t "${IMAGE}:stg-${SHORT_SHA}" \
+            apps/api
+
+          docker push "${IMAGE}:staging"
+          docker push "${IMAGE}:stg-${SHORT_SHA}"
+
+      - name: Trigger App Platform deployment
+        run: |
+          if [ -z "$DO_STAGING_APP_ID" ]; then
+            echo "DO_STAGING_APP_ID secret is required"
+            exit 1
+          fi
+
+          doctl apps create-deployment "$DO_STAGING_APP_ID"

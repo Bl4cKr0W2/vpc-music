@@ -1,42 +1,50 @@
-# Dependencies
-node_modules/
-vendor/
-
-# Build output
-dist/
-build/
-out/
-.next/
-.nuxt/
-
-# Environment variables
-.env
-.env.local
-.env.*.local
-
-# Logs
-logs/
-*.log
+# Package manager debug logs
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+pnpm-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Environment variables
+*.env
+*.env.local
+.env.staging
+.env.production
+!.env.example
+!.env.staging.example
+!.env.production.example
 
 # OS files
 Thumbs.db
 ehthumbs.db
 Desktop.ini
-.DS_Store
 ._*
-
-# IDE / Editor
-*.swp
-*.swo
-*~
-.idea/
 
 # Test & coverage
 coverage/
 .nyc_output/
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+apps/web/test-results/
+apps/web/playwright-report/
 
 # Misc
 *.tgz
@@ -44,4 +52,8 @@ coverage/
 .cache/
 .temp/
 .tmp/
-.vscode/
+
+# Deploy
+apps/api/deploy.config.jsonc
+*-deploy.tar.gz
+deploy-remote-tmp.sh

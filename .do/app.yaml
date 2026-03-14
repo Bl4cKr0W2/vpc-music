@@ -1,0 +1,69 @@
+# VPC Music — DigitalOcean App Platform (Production)
+#
+# Setup:
+#   1. Install doctl: https://docs.digitalocean.com/reference/doctl/how-to/install/
+#   2. doctl auth init
+#   3. Create the app:
+#        doctl apps create --spec .do/app.yaml
+#   4. Or update existing:
+#        doctl apps update <app-id> --spec .do/app.yaml
+#
+# The CI/CD pipeline pushes pre-built images to DOCR and triggers deploy.
+
+name: vpc-music-api
+region: nyc
+
+databases:
+  - engine: PG
+    name: vpc-music-db
+    num_nodes: 1
+    size: db-s-dev-database
+    version: "16"
+    production: true
+
+services:
+  - name: vpc-music-api
+
+    # Pre-built image from DigitalOcean Container Registry
+    image:
+      registry_type: DOCR
+      repository: vpc-music-api
+      tag: latest
+
+    instance_count: 1
+    instance_size_slug: professional-xs
+    http_port: 3000
+
+    health_check:
+      http_path: /health
+      initial_delay_seconds: 10
+      period_seconds: 15
+      timeout_seconds: 3
+      success_threshold: 1
+      failure_threshold: 3
+
+    routes:
+      - path: /
+
+    envs:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        scope: RUN_TIME
+        value: ${vpc-music-db.DATABASE_URL}
+      - key: JWT_SECRET
+        type: SECRET
+        value: REPLACE_ME
+      - key: JWT_EXPIRES_IN
+        value: "7d"
+      - key: CORS_ORIGIN
+        value: https://app.vpcmusic.com
+      - key: FRONTEND_URL
+        value: https://app.vpcmusic.com
+      - key: PDF_CO_API_KEY
+        type: SECRET
+        value: REPLACE_ME
+
+domains:
+  - domain: api.vpcmusic.com
+    type: PRIMARY

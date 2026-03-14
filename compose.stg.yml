@@ -1,0 +1,30 @@
+# Staging: full-stack Docker build
+# Usage: docker compose -f compose.yml -f compose.stg.yml up -d --build
+services:
+  postgres:
+    environment:
+      POSTGRES_DB: vpc_music_stg
+
+  api:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    container_name: vpc-music-api-stg
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3000}:3000"
+    env_file:
+      - .env.staging
+    depends_on:
+      - postgres
+
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+    container_name: vpc-music-web-stg
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - api
