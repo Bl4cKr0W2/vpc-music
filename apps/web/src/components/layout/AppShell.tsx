@@ -2,7 +2,7 @@ import { Outlet, NavLink } from "react-router-dom";
 import { useTheme } from "@/contexts/ThemeContext";
 
 export function AppShell() {
-  const { theme, toggleTheme } = useTheme();
+  const { resolvedTheme, toggleTheme } = useTheme();
 
   return (
     <div className="min-h-screen bg-[hsl(var(--background))] text-[hsl(var(--foreground))]">
@@ -46,7 +46,7 @@ export function AppShell() {
             className="ml-2 p-1.5 rounded-md bg-[hsl(var(--muted))] text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] transition-colors"
             aria-label="Toggle theme"
           >
-            {theme === "dark" ? "☀️" : "🌙"}
+            {resolvedTheme === "dark" ? "☀️" : "🌙"}
           </button>
         </nav>
       </header>

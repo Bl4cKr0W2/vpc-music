@@ -21,6 +21,15 @@
     <title>VPC Music</title>
   </head>
   <body>
+    <!-- Prevent FOUC: apply dark class before React hydrates -->
+    <script>
+      (function() {
+        var t = localStorage.getItem('vpc-theme');
+        if (t === 'dark' || (!t && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+          document.documentElement.classList.add('dark');
+        }
+      })();
+    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

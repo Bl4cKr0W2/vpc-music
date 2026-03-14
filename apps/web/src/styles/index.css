@@ -116,6 +116,14 @@
     @apply border-[hsl(var(--border))];
   }
 
+  html {
+    color-scheme: light;
+  }
+
+  html.dark {
+    color-scheme: dark;
+  }
+
   body {
     @apply bg-[hsl(var(--background))] text-[hsl(var(--foreground))];
     font-family: var(--font-sans);
@@ -135,6 +143,37 @@
   h4 { @apply text-xl leading-normal; }
   h5 { @apply text-lg leading-normal; }
   h6 { @apply text-base leading-relaxed; }
+
+  /* Focus ring — brand gold */
+  :focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+  }
+
+  /* Text selection — brand colors */
+  ::selection {
+    background-color: hsl(var(--secondary) / 0.3);
+    color: hsl(var(--foreground));
+  }
+
+  /* Scrollbar — themed */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: hsl(var(--muted));
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--border));
+    border-radius: 4px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground));
+  }
 }
 
 /* ── Utility classes ──────────────────────────────────────────── */
