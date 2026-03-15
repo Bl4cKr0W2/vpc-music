@@ -88,6 +88,16 @@ export function SongEditPage() {
       const keyMatch = text.match(/\{key:\s*(.*?)\}/);
       if (keyMatch && !key) setKey(keyMatch[1]);
       toast.success("ChordPro file loaded");
+    } else if (ext === "pdf") {
+      // PDF — send binary to API for PDF.co conversion pipeline
+      try {
+        toast.info("Processing PDF — this may take a moment…");
+        const res = await songsApi.importPdf(file);
+        toast.success("PDF imported — review and save");
+        navigate(`/songs/${res.song.id}`);
+      } catch (err: any) {
+        toast.error(err.message || "PDF import failed");
+      }
     } else if (ext === "chrd" || ext === "txt") {
       // .chrd / plain text — send to API for conversion
       try {
@@ -101,7 +111,7 @@ export function SongEditPage() {
         toast.error(err.message || "Import failed");
       }
     } else {
-      toast.error("Unsupported file format. Use .cho, .chordpro, .chrd, or .txt");
+      toast.error("Unsupported file format. Use .cho, .chordpro, .chrd, .txt, or .pdf");
     }
     e.target.value = ""; // reset file input
   };
@@ -203,13 +213,13 @@ export function SongEditPage() {
             Import file
             <input
               type="file"
-              accept=".cho,.chordpro,.chopro,.chrd,.txt"
+              accept=".cho,.chordpro,.chopro,.chrd,.txt,.pdf"
               onChange={handleImport}
               className="hidden"
             />
           </label>
           <span className="text-xs text-[hsl(var(--muted-foreground))]">
-            .cho, .chordpro, .chrd, .txt
+            .cho, .chordpro, .chrd, .txt, .pdf
           </span>
         </div>
 

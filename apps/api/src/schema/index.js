@@ -7,3 +7,5 @@ export * from "./events.js";
 export * from "./passwordResetTokens.js";
 export * from "./shareTokens.js";
 export * from "./songUsages.js";
+export * from "./songEdits.js";
+export * from "./stickyNotes.js";

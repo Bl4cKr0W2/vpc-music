@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef } from "react";
 import { useParams, Link } from "react-router-dom";
 import { shareApi, type Song } from "@/lib/api-client";
-import { ChordProRenderer, AutoScroll } from "@/components/songs/ChordProRenderer";
+import { ChordProRenderer, AutoScroll, type ChordProRendererHandle } from "@/components/songs/ChordProRenderer";
 import { ThemeToggleButton } from "@/components/ui/ThemeToggleButton";
+import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { Eye, EyeOff, Music, Printer, Hash } from "lucide-react";
 
 /**
@@ -22,6 +23,14 @@ export function SharedSongPage() {
   const [nashville, setNashville] = useState(false);
   const [fontSize, setFontSize] = useState(16);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const chordProRef = useRef<ChordProRendererHandle>(null);
+
+  // Keyboard shortcuts & foot pedal support
+  useKeyboardShortcuts({
+    scrollRef,
+    onTransposeUp: () => chordProRef.current?.transposeUp(),
+    onTransposeDown: () => chordProRef.current?.transposeDown(),
+  });
 
   useEffect(() => {
     if (!token) return;
@@ -145,6 +154,7 @@ export function SharedSongPage() {
           style={{ maxHeight: "calc(100vh - 280px)" }}
         >
           <ChordProRenderer
+            ref={chordProRef}
             content={song.content}
             songKey={song.key}
             showChords={showChords}

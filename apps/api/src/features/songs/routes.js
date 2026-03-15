@@ -1,12 +1,29 @@
 import { Router } from "express";
 import { eq, ilike, or, and, desc, sql } from "drizzle-orm";
 import { db } from "../../db.js";
-import { songs, songVariations, songUsages } from "../../schema/index.js";
+import { songs, songVariations, songUsages, songEdits } from "../../schema/index.js";
 import { createError, asyncHandler } from "../../middlewares/errorHandler.js";
 import { auth } from "../../middlewares/auth.js";
 import { orgContext, requireOrg } from "../../middlewares/orgContext.js";
+import { chordProToOnSong, parseChordPro } from "@vpc-music/shared";
+import { env } from "../../config/env.js";
+import multer from "multer";
+import { convertPdfToChordPro } from "./pdfToChordPro.js";
 
 export const songRoutes = Router();
+
+// ── Multer config for PDF uploads (10 MB limit, PDF only) ────
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (file.mimetype === "application/pdf") {
+      cb(null, true);
+    } else {
+      cb(new Error("Only PDF files are allowed"));
+    }
+  },
+});
 
 // ── GET /api/songs — list all songs (with optional search) ───
 songRoutes.get(
@@ -137,13 +154,32 @@ songRoutes.put(
     const { title, key, tempo, artist, year, tags, content, isDraft } = req.body;
 
     const [existing] = await db
-      .select({ id: songs.id })
+      .select()
       .from(songs)
       .where(eq(songs.id, req.params.id))
       .limit(1);
 
     if (!existing) {
       throw createError(404, "Song not found");
+    }
+
+    // Track field-level changes for edit history
+    const trackedFields = { title, key, tempo, artist, year, tags, content, isDraft };
+    const edits = [];
+    for (const [field, newVal] of Object.entries(trackedFields)) {
+      if (newVal === undefined) continue;
+      const oldVal = existing[field];
+      const oldStr = oldVal == null ? null : String(oldVal);
+      const newStr = newVal == null ? null : String(newVal);
+      if (oldStr !== newStr) {
+        edits.push({
+          songId: req.params.id,
+          editedBy: req.user.id,
+          field,
+          oldValue: oldStr,
+          newValue: newStr,
+        });
+      }
     }
 
     const [song] = await db
@@ -161,6 +197,11 @@ songRoutes.put(
       })
       .where(eq(songs.id, req.params.id))
       .returning();
+
+    // Record edit history
+    if (edits.length > 0) {
+      await db.insert(songEdits).values(edits);
+    }
 
     res.json({ song });
   })
@@ -189,6 +230,32 @@ songRoutes.delete(
     await db.delete(songs).where(eq(songs.id, req.params.id));
 
     res.json({ message: "Song deleted" });
+  })
+);
+
+// ── GET /api/songs/:id/history — get edit history ────────────
+songRoutes.get(
+  "/:id/history",
+  auth,
+  asyncHandler(async (req, res) => {
+    const [song] = await db
+      .select({ id: songs.id })
+      .from(songs)
+      .where(eq(songs.id, req.params.id))
+      .limit(1);
+
+    if (!song) {
+      throw createError(404, "Song not found");
+    }
+
+    const history = await db
+      .select()
+      .from(songEdits)
+      .where(eq(songEdits.songId, req.params.id))
+      .orderBy(desc(songEdits.createdAt))
+      .limit(100);
+
+    res.json({ history });
   })
 );
 
@@ -293,9 +360,48 @@ songRoutes.post(
 songRoutes.post(
   "/import/pdf",
   auth,
-  asyncHandler(async (_req, res) => {
-    // TODO: PDF → ChordPro conversion pipeline (Phase 6)
-    throw createError(501, "PDF import not yet implemented");
+  orgContext,
+  requireOrg,
+  upload.single("file"),
+  asyncHandler(async (req, res) => {
+    if (!req.file) {
+      throw createError(400, "A PDF file is required");
+    }
+
+    if (!env.PDF_CO_API_KEY) {
+      throw createError(
+        503,
+        "PDF import is not available — PDF.co API key is not configured",
+      );
+    }
+
+    const pdfBuffer = req.file.buffer;
+
+    // Run the 8-step conversion pipeline
+    const { chordPro, metadata } = await convertPdfToChordPro(pdfBuffer);
+
+    if (!chordPro || !chordPro.trim()) {
+      throw createError(
+        422,
+        "Could not extract usable content from the PDF. It may be scanned or image-based.",
+      );
+    }
+
+    // Save to database
+    const [song] = await db
+      .insert(songs)
+      .values({
+        title: metadata.title || "Untitled (PDF Import)",
+        content: chordPro,
+        key: metadata.key || null,
+        tempo: metadata.tempo || null,
+        artist: metadata.artist || null,
+        organizationId: req.org.id,
+        createdBy: req.user.id,
+      })
+      .returning();
+
+    res.status(201).json({ song, chordPro });
   })
 );
 
@@ -323,16 +429,97 @@ songRoutes.get(
 // ── GET /api/songs/:id/export/onsong ─────────────────────────
 songRoutes.get(
   "/:id/export/onsong",
-  asyncHandler(async (_req, _res) => {
-    throw createError(501, "OnSong export not yet implemented");
+  asyncHandler(async (req, res) => {
+    const [song] = await db
+      .select({ title: songs.title, content: songs.content })
+      .from(songs)
+      .where(eq(songs.id, req.params.id))
+      .limit(1);
+
+    if (!song) throw createError(404, "Song not found");
+
+    const onsongText = chordProToOnSong(song.content);
+    const safeName = song.title.replace(/[^a-zA-Z0-9 ]/g, "");
+    res.setHeader("Content-Type", "text/plain; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="${safeName}.onsong"`);
+    res.send(onsongText);
   })
 );
 
 // ── GET /api/songs/:id/export/pdf ────────────────────────────
 songRoutes.get(
   "/:id/export/pdf",
-  asyncHandler(async (_req, _res) => {
-    throw createError(501, "PDF export not yet implemented");
+  asyncHandler(async (req, res) => {
+    const [song] = await db
+      .select({
+        title: songs.title,
+        content: songs.content,
+        key: songs.key,
+        artist: songs.artist,
+        tempo: songs.tempo,
+      })
+      .from(songs)
+      .where(eq(songs.id, req.params.id))
+      .limit(1);
+
+    if (!song) throw createError(404, "Song not found");
+
+    const doc = parseChordPro(song.content);
+    const metaHtml = [
+      song.key ? `<span>Key: ${song.key}</span>` : "",
+      song.artist ? `<span>Artist: ${song.artist}</span>` : "",
+      song.tempo ? `<span>Tempo: ${song.tempo} BPM</span>` : "",
+    ]
+      .filter(Boolean)
+      .join(" &middot; ");
+
+    let bodyHtml = "";
+    for (const section of doc.sections) {
+      if (section.name) {
+        bodyHtml += `<h3 style="font-weight:700;margin:16px 0 4px;font-size:13px;text-transform:uppercase;letter-spacing:0.5px">${escapeHtml(section.name)}</h3>`;
+      }
+      for (const line of section.lines) {
+        if (line.chords.length > 0) {
+          // Build chord line and lyric line
+          let chordLine = "";
+          let lyricLine = "";
+          let lyricPos = 0;
+          const sorted = [...line.chords].sort((a, b) => a.position - b.position);
+          for (const { chord, position } of sorted) {
+            const gap = position - lyricPos;
+            if (gap > 0) {
+              chordLine += "\u00A0".repeat(gap);
+              lyricLine += escapeHtml(line.lyrics.slice(lyricPos, position));
+            }
+            chordLine += `<b>${escapeHtml(chord)}</b>`;
+            lyricPos = position;
+          }
+          lyricLine += escapeHtml(line.lyrics.slice(lyricPos));
+          bodyHtml += `<div style="font-family:monospace;line-height:1.2"><div style="color:#ca9762">${chordLine || "&nbsp;"}</div><div>${lyricLine || "&nbsp;"}</div></div>`;
+        } else {
+          bodyHtml += `<div style="font-family:monospace;line-height:1.6">${escapeHtml(line.lyrics) || "&nbsp;"}</div>`;
+        }
+      }
+    }
+
+    const html = `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>${escapeHtml(song.title)}</title>
+<style>
+  @page { size: letter; margin: 0.75in; }
+  body { font-family: 'Inter','Segoe UI',sans-serif; font-size: 12px; color: #1a1a1a; }
+  h1 { font-family: 'Vidaloka',Georgia,serif; font-size: 22px; margin:0 0 4px; }
+  .meta { color: #666; font-size: 11px; margin-bottom: 16px; }
+  @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+</style>
+</head><body>
+<h1>${escapeHtml(song.title)}</h1>
+${metaHtml ? `<div class="meta">${metaHtml}</div>` : ""}
+${bodyHtml}
+<script>window.onload=function(){window.print()}</script>
+</body></html>`;
+
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.send(html);
   })
 );
 
@@ -408,3 +595,105 @@ songRoutes.delete(
     res.json({ message: "Usage record deleted" });
   })
 );
+
+// ── Song Variations ──────────────────────────────────────────
+
+// ── POST /api/songs/:id/variations — create a variation ──────
+songRoutes.post(
+  "/:id/variations",
+  auth,
+  asyncHandler(async (req, res) => {
+    const { name, content, key } = req.body;
+
+    if (!name || !content) {
+      throw createError(400, "Name and content are required");
+    }
+
+    // Verify parent song exists
+    const [song] = await db
+      .select({ id: songs.id })
+      .from(songs)
+      .where(eq(songs.id, req.params.id))
+      .limit(1);
+
+    if (!song) throw createError(404, "Song not found");
+
+    const [variation] = await db
+      .insert(songVariations)
+      .values({
+        songId: req.params.id,
+        name,
+        content,
+        key: key || null,
+        createdBy: req.user.id,
+      })
+      .returning();
+
+    res.status(201).json({ variation });
+  })
+);
+
+// ── PUT /api/songs/:id/variations/:varId — update variation ──
+songRoutes.put(
+  "/:id/variations/:varId",
+  auth,
+  asyncHandler(async (req, res) => {
+    const { name, content, key } = req.body;
+
+    const [existing] = await db
+      .select({ id: songVariations.id })
+      .from(songVariations)
+      .where(
+        and(
+          eq(songVariations.id, req.params.varId),
+          eq(songVariations.songId, req.params.id)
+        )
+      )
+      .limit(1);
+
+    if (!existing) throw createError(404, "Variation not found");
+
+    const [variation] = await db
+      .update(songVariations)
+      .set({
+        ...(name !== undefined && { name }),
+        ...(content !== undefined && { content }),
+        ...(key !== undefined && { key: key || null }),
+        updatedAt: new Date(),
+      })
+      .where(eq(songVariations.id, req.params.varId))
+      .returning();
+
+    res.json({ variation });
+  })
+);
+
+// ── DELETE /api/songs/:id/variations/:varId — delete variation
+songRoutes.delete(
+  "/:id/variations/:varId",
+  auth,
+  asyncHandler(async (req, res) => {
+    const [existing] = await db
+      .select({ id: songVariations.id })
+      .from(songVariations)
+      .where(
+        and(
+          eq(songVariations.id, req.params.varId),
+          eq(songVariations.songId, req.params.id)
+        )
+      )
+      .limit(1);
+
+    if (!existing) throw createError(404, "Variation not found");
+
+    await db.delete(songVariations).where(eq(songVariations.id, req.params.varId));
+
+    res.json({ message: "Variation deleted" });
+  })
+);
+
+/** Minimal HTML entity escaper for PDF template. */
+function escapeHtml(str) {
+  if (!str) return "";
+  return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}

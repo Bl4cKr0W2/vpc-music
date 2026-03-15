@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import {
   setlistsApi,
@@ -8,8 +8,24 @@ import {
   type Song,
 } from "@/lib/api-client";
 import { toast } from "sonner";
-import { ArrowLeft, Plus, Trash2, GripVertical, Music, X, CheckCircle2, RotateCcw } from "lucide-react";
+import {
+  ArrowLeft,
+  Plus,
+  Trash2,
+  GripVertical,
+  Music,
+  X,
+  CheckCircle2,
+  RotateCcw,
+  Radio,
+  Wifi,
+  WifiOff,
+  Users,
+  LogOut,
+  Play,
+} from "lucide-react";
 import { ALL_KEYS } from "@vpc-music/shared";
+import { useConductor } from "@/hooks/useConductor";
 
 export function SetlistViewPage() {
   const { id } = useParams<{ id: string }>();
@@ -20,6 +36,51 @@ export function SetlistViewPage() {
   const [showAddSong, setShowAddSong] = useState(false);
   const [availableSongs, setAvailableSongs] = useState<Song[]>([]);
   const [searchQ, setSearchQ] = useState("");
+
+  // ── Live mode state ────────────────────────────
+  const [liveMode, setLiveMode] = useState<"off" | "conductor" | "member">("off");
+  const songListRef = useRef<HTMLDivElement>(null);
+  const scrollThrottleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const conductor = useConductor(
+    liveMode !== "off"
+      ? { setlistId: id!, mode: liveMode }
+      : { setlistId: "", mode: "member" }
+  );
+
+  // Disconnect when going back to off
+  const handleLeaveLive = useCallback(() => {
+    conductor.leave();
+    setLiveMode("off");
+  }, [conductor]);
+
+  // Scroll to current song when it changes (member mode)
+  useEffect(() => {
+    if (liveMode !== "member" || !songListRef.current) return;
+    const items = songListRef.current.querySelectorAll("[data-song-index]");
+    const target = items[conductor.currentSong];
+    if (target && typeof target.scrollIntoView === "function") {
+      target.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [conductor.currentSong, liveMode]);
+
+  // Member: sync scroll position from conductor
+  useEffect(() => {
+    if (liveMode !== "member" || !songListRef.current) return;
+    songListRef.current.scrollTop = conductor.scrollTop;
+  }, [conductor.scrollTop, liveMode]);
+
+  // Conductor: broadcast scroll position (throttled)
+  const handleScroll = useCallback(() => {
+    if (liveMode !== "conductor" || !songListRef.current) return;
+    if (scrollThrottleRef.current) return;
+    scrollThrottleRef.current = setTimeout(() => {
+      scrollThrottleRef.current = null;
+      if (songListRef.current) {
+        conductor.broadcastScroll(songListRef.current.scrollTop);
+      }
+    }, 100);
+  }, [liveMode, conductor]);
 
   // Load setlist
   useEffect(() => {
@@ -204,6 +265,105 @@ export function SetlistViewPage() {
         )}
       </div>
 
+      {/* ── Live Mode Panel ─────────────────────────── */}
+      <div className="rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-4 space-y-3">
+        {liveMode === "off" ? (
+          <div className="flex flex-wrap items-center gap-3">
+            <Radio className="h-5 w-5 text-[hsl(var(--secondary))]" />
+            <span className="text-sm font-medium text-[hsl(var(--foreground))]">Live Mode</span>
+            <div className="flex-1" />
+            <button
+              data-testid="start-conductor"
+              onClick={() => setLiveMode("conductor")}
+              className="inline-flex items-center gap-1.5 rounded-md bg-[hsl(var(--secondary))] px-3 py-1.5 text-xs font-medium text-[hsl(var(--secondary-foreground))] hover:opacity-90 transition-opacity"
+            >
+              <Play className="h-3.5 w-3.5" /> Lead Session
+            </button>
+            <button
+              data-testid="join-member"
+              onClick={() => setLiveMode("member")}
+              className="inline-flex items-center gap-1.5 rounded-md border border-[hsl(var(--border))] px-3 py-1.5 text-xs hover:bg-[hsl(var(--muted))] transition-colors"
+            >
+              <Users className="h-3.5 w-3.5" /> Join Session
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            <div className="flex flex-wrap items-center gap-3">
+              <Radio className="h-5 w-5 text-[hsl(var(--secondary))] animate-pulse" />
+              <span className="text-sm font-medium text-[hsl(var(--foreground))]">
+                {liveMode === "conductor" ? "Leading Session" : "Following Session"}
+              </span>
+
+              {/* Connection indicator */}
+              <span
+                data-testid="connection-status"
+                className={`inline-flex items-center gap-1 text-xs ${
+                  conductor.connected
+                    ? "text-green-600 dark:text-green-400"
+                    : "text-red-600 dark:text-red-400"
+                }`}
+              >
+                {conductor.connected ? (
+                  <Wifi className="h-3.5 w-3.5" />
+                ) : (
+                  <WifiOff className="h-3.5 w-3.5" />
+                )}
+                {conductor.connected ? "Connected" : "Disconnected"}
+              </span>
+
+              {/* Members count */}
+              <span
+                data-testid="members-count"
+                className="inline-flex items-center gap-1 text-xs text-[hsl(var(--muted-foreground))]"
+              >
+                <Users className="h-3.5 w-3.5" />
+                {conductor.roomState.members.length} member{conductor.roomState.members.length !== 1 ? "s" : ""}
+              </span>
+
+              <div className="flex-1" />
+              <button
+                data-testid="leave-session"
+                onClick={handleLeaveLive}
+                className="inline-flex items-center gap-1.5 rounded-md border border-[hsl(var(--destructive))] px-3 py-1.5 text-xs text-[hsl(var(--destructive))] hover:bg-[hsl(var(--destructive))] hover:text-[hsl(var(--destructive-foreground))] transition-colors"
+              >
+                <LogOut className="h-3.5 w-3.5" /> Leave
+              </button>
+            </div>
+
+            {/* Conductor info */}
+            {conductor.roomState.conductor && (
+              <p className="text-xs text-[hsl(var(--muted-foreground))]">
+                Conductor: <span className="font-medium">{conductor.roomState.conductor.displayName}</span>
+              </p>
+            )}
+
+            {/* Conductor left warning */}
+            {liveMode === "member" && !conductor.roomState.conductor && (
+              <div
+                data-testid="conductor-left-warning"
+                className="rounded-md bg-amber-100 p-2 text-xs text-amber-800 dark:bg-amber-900/30 dark:text-amber-400"
+              >
+                The conductor has left the session. Waiting for a new conductor...
+              </div>
+            )}
+
+            {/* Now playing banner */}
+            {songs.length > 0 && (
+              <div
+                data-testid="now-playing"
+                className="rounded-md bg-[hsl(var(--secondary))]/10 p-2 text-sm"
+              >
+                <span className="text-[hsl(var(--muted-foreground))]">Now playing:</span>{" "}
+                <span className="font-medium text-[hsl(var(--foreground))]">
+                  {songs[conductor.currentSong]?.songTitle || "—"}
+                </span>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
       {/* Song list */}
       <div className="space-y-2">
         <div className="flex items-center justify-between">
@@ -231,9 +391,21 @@ export function SetlistViewPage() {
             </button>
           </div>
         ) : (
-          <div className="divide-y divide-[hsl(var(--border))] rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card))]">
+          <div
+            ref={songListRef}
+            onScroll={handleScroll}
+            className="divide-y divide-[hsl(var(--border))] rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card))]"
+          >
             {songs.map((item, idx) => (
-              <div key={item.id} className="flex items-center gap-3 p-3">
+              <div
+                key={item.id}
+                data-song-index={idx}
+                className={`flex items-center gap-3 p-3 transition-colors ${
+                  liveMode !== "off" && idx === conductor.currentSong
+                    ? "bg-[hsl(var(--secondary))]/10 ring-1 ring-inset ring-[hsl(var(--secondary))]/30"
+                    : ""
+                }`}
+              >
                 {/* Reorder buttons */}
                 <div className="flex flex-col gap-0.5">
                   <button
@@ -277,6 +449,24 @@ export function SetlistViewPage() {
                       .join(" · ")}
                   </div>
                 </Link>
+
+                {/* Conductor: Go-to button */}
+                {liveMode === "conductor" && idx !== conductor.currentSong && (
+                  <button
+                    onClick={() => conductor.goToSong(idx)}
+                    className="inline-flex items-center gap-1 rounded-md bg-[hsl(var(--secondary))] px-2 py-1 text-xs font-medium text-[hsl(var(--secondary-foreground))] hover:opacity-90 transition-opacity"
+                    title="Navigate to this song"
+                  >
+                    <Play className="h-3 w-3" /> Go
+                  </button>
+                )}
+
+                {/* Now Playing indicator in live mode */}
+                {liveMode !== "off" && idx === conductor.currentSong && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-[hsl(var(--secondary))]/20 px-2 py-0.5 text-xs font-medium text-[hsl(var(--secondary))]">
+                    <Radio className="h-3 w-3 animate-pulse" /> Live
+                  </span>
+                )}
 
                 {/* Remove */}
                 <button

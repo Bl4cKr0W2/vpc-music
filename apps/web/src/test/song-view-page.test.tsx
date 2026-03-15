@@ -27,6 +27,20 @@ vi.mock("@/lib/api-client", () => ({
     list: vi.fn().mockResolvedValue({ usages: [] }),
     remove: vi.fn().mockResolvedValue({ message: "ok" }),
   },
+  songHistoryApi: {
+    list: vi.fn().mockResolvedValue({ history: [] }),
+  },
+  variationsApi: {
+    create: vi.fn().mockResolvedValue({ variation: { id: "v1", songId: "song-1", name: "Acoustic", content: "[C]New", key: "C" } }),
+    update: vi.fn().mockResolvedValue({ variation: { id: "v1", songId: "song-1", name: "Updated", content: "[D]Updated", key: "D" } }),
+    delete: vi.fn().mockResolvedValue({ message: "ok" }),
+  },
+  stickyNotesApi: {
+    list: vi.fn().mockResolvedValue({ notes: [] }),
+    create: vi.fn().mockResolvedValue({ note: { id: "n1", songId: "song-1", content: "Test", color: "yellow" } }),
+    update: vi.fn().mockResolvedValue({ note: { id: "n1", songId: "song-1", content: "Updated", color: "blue" } }),
+    delete: vi.fn().mockResolvedValue({ message: "ok" }),
+  },
 }));
 
 vi.mock("react-router-dom", async () => {

@@ -48,7 +48,7 @@ const coreFeatures = [
   {
     icon: FileInput,
     title: "Flexible Import",
-    desc: "Bring your library. Import .chrd legacy files, .cho/.chordpro/.chopro ChordPro files, or paste plain text and add chords.",
+    desc: "Bring your library. Import .chrd legacy files, .cho/.chordpro/.chopro ChordPro files, PDF chord sheets, or paste plain text and add chords.",
   },
 ];
 

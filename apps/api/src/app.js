@@ -13,12 +13,13 @@ import { platformRoutes } from "./features/platform/routes.js";
 import { adminRoutes } from "./features/admin/routes.js";
 import { eventRoutes } from "./features/events/routes.js";
 import { shareRoutes } from "./features/share/routes.js";
+import { stickyNoteRoutes } from "./features/songs/stickyNoteRoutes.js";
 
 const app = express();
 
 // ── Middleware ────────────────────────────────────
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || "http://localhost:5175",
+  origin: process.env.CORS_ORIGIN || "http://localhost:5176",
   credentials: true,
 }));
 app.use(express.json({ limit: "5mb" }));
@@ -34,6 +35,7 @@ app.get("/health", (_req, res) => {
 // ── Routes ───────────────────────────────────────
 app.use("/api/auth", authRoutes);
 app.use("/api/songs", songRoutes);
+app.use("/api/songs", stickyNoteRoutes);  // /api/songs/:songId/notes
 app.use("/api/setlists", setlistRoutes);
 app.use("/api/platform", platformRoutes);
 app.use("/api/admin", adminRoutes);

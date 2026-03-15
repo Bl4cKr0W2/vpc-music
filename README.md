@@ -180,7 +180,7 @@ PDF upload
 - **Repeat/coda/DS markings** — detect and preserve as ChordPro comments or custom directives
 - **Multi-page songs** — stitch pages in order before column/line assembly
 
-> **Note:** PDF import will be a later-phase feature. The initial release will support manual paste-and-edit. The full geometry-aware pipeline is a targeted improvement once the core ChordPro engine is stable.
+> **Note:** PDF import is fully implemented. The geometry-aware pipeline handles single- and two-column layouts, chord-line classification, chord-to-word positional alignment, and metadata extraction (title, key, tempo, artist, copyright).
 
 ---
 
@@ -195,7 +195,7 @@ PDF upload
 - **Transpose** — instant key changes with chord recalculation (step-by-step semitone buttons + direct key picker with all 12 keys)
 - **Key via URL** — deep-link to any song in a specific key
 - **Quick Navigation** — dropdown to jump between song sections (Verse, Chorus, Bridge, etc.) with smooth scroll and highlight animation
-- **Sticky Notes** — attach personal reminders to any song or section
+- **Sticky Notes** — attach personal reminders to any song or section ✅ *Implemented*
 - **Song Status Indicator** — visual flags for incomplete data (e.g. missing chords, no tempo set)
 
 ### 📁 Song Metadata
@@ -298,7 +298,7 @@ Here are some features worth considering that could take VPC Music to the next l
 ### Performance Mode
 - **Auto-Scroll** — configurable scroll speed per song, tempo-synced or manual
 - **Setlist Countdown Timer** — track time remaining per song or full set
-- **Foot Pedal / Bluetooth Control** — page turns and song navigation hands-free
+- **Foot Pedal / Bluetooth Control** — page turns and song navigation hands-free ✅ *Implemented*
 
 ### Collaboration & Rehearsal
 - **Live Setlist Sync** — band leader pushes the current song/position to all connected devices in real time
@@ -312,7 +312,7 @@ Here are some features worth considering that could take VPC Music to the next l
 - **Key Compatibility Checker** — when building a setlist, flag awkward key transitions between songs
 
 ### Offline & Sync
-- **Offline Mode** — full functionality without a connection; sync when back online
+- **Offline Mode** — ✅ PWA with auto-updating service worker (Workbox), precached app shell, runtime-cached API data (NetworkFirst with 7-day expiry), Google Fonts caching, branded offline fallback page
 - **Conflict Resolution** — smart merge when the same song is edited on multiple devices
 
 ### Accessibility & Device Support
@@ -321,7 +321,7 @@ Here are some features worth considering that could take VPC Music to the next l
 - **Font Scaling Shortcuts** — pinch-to-zoom or quick buttons for on-the-fly size adjustments (current site has zoom controls)
 
 ### History & Versioning
-- **Song Edit History** — full changelog with diff view and rollback
+- **Song Edit History** — full changelog with diff view and rollback ✅ *Implemented*
 - **Setlist Archive** — automatically save performed setlists with date, venue, and notes
 
 ---
@@ -649,18 +649,18 @@ An extensive look at existing tools in the chord chart, setlist, and worship mus
 | Auto-scroll | ✅ | - | ✅ | - | - | ✅ |
 | Setlist builder | ✅ | ✅ | ✅ | - | ✅ | ✅ |
 | MIDI integration | ✅ | - | ✅ | - | - | - |
-| Foot pedal support | ✅ | ✅ | ✅ | - | - | Planned |
+| Foot pedal support | ✅ | ✅ | ✅ | - | - | ✅ Completed |
 | Multi-user roles | - | ✅ | ✅ | - | - | ✅ (org-scoped: owner, admin, musician, observer) |
-| Live sync to band | - | ✅ | ✅ | - | - | Partial (backend + hook, no UI) |
-| Song edit history | - | - | ✅ | - | - | Planned |
+| Live sync to band | - | ✅ | ✅ | - | - | ✅ Completed |
+| Song edit history | - | - | ✅ | - | - | ✅ Completed |
 | Nashville Numbers | - | - | - | - | - | ✅ Completed |
 | Custom themes | ✅ | - | ✅ | - | - | Partial (dark/light/system only) |
-| Offline mode | ✅ | ✅ | ✅ | - | ✅ | Planned |
+| Offline mode | ✅ | ✅ | ✅ | - | ✅ | ✅ Completed |
 | Free tier | - | ✅ | - | ✅ | ✅ | TBD |
 | Song database | - | Via integration | - | ✅ (230K+) | - | - |
-| Clone/variations | - | - | ✅ | - | - | Partial (schema + read/delete, no standalone CRUD/UI) |
-| Sticky notes | ✅ | - | ✅ | - | - | Planned |
-| Export/print control | ✅ | ✅ | ✅ | ✅ | ✅ | Partial (ChordPro export only, no print) |
+| Clone/variations | - | - | ✅ | - | - | ✅ Completed |
+| Sticky notes | ✅ | - | ✅ | - | - | ✅ Completed |
+| Export/print control | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ Completed |
 
 ---
 
@@ -796,10 +796,17 @@ vpc-music/
 | Route Prefix | Module | Description |
 |---|---|---|
 | `/health` | inline | Health check |
-| `/api/auth` | `routes/auth.js` | Register, login, logout, me, forgot-password, reset-password |
-| `/api/songs` | `features/songs/` | CRUD with search (`?q`, `?tag`, `?key`), .chrd import, ChordPro export |
-| `/api/setlists` | `features/setlists/` | Setlist CRUD, add/remove/reorder songs |
+| `/api/auth` | `routes/auth.js` | Register, login, logout, me, forgot-password, reset-password, set-password, Google OAuth |
+| `/api/songs` | `features/songs/` | CRUD with search (`?q`, `?tag`, `?key`), .chrd import, PDF import (multer + PDF.co), ChordPro/OnSong/PDF export |
+| `/api/songs/:id/variations` | `features/songs/` | Song variation CRUD (POST, PUT, DELETE) |
+| `/api/songs/:id/usage` | `features/songs/` | Song usage tracking (log, list, delete) |
+| `/api/songs/:id/share` | `features/share/` | Create share link |
+| `/api/songs/:id/shares` | `features/share/` | List, revoke, update share tokens |
+| `/api/shared/:token` | `features/share/` | Public song access via share token (no auth) |
+| `/api/setlists` | `features/setlists/` | Setlist CRUD, add/remove/reorder songs, mark complete/reopen |
+| `/api/events` | `features/events/` | Event CRUD with optional setlist links |
 | `/api/platform` | `features/platform/` | User settings, profile update, password change |
+| `/api/admin/users` | `features/admin/` | Team management — list, invite, update roles, remove members |
 
 ### Key Scripts
 
@@ -807,7 +814,8 @@ vpc-music/
 |---|---|
 | `pnpm dev` | Start API + Web concurrently |
 | `pnpm build` | Build web (or `build:api`, `build:web`) |
-| `pnpm test` | Run web tests |
+| `pnpm test` | Run web tests (Vitest) |
+| `pnpm --filter @vpc-music/api test` | Run API tests (Vitest) |
 | `pnpm lint` | Lint web app |
 | `pnpm typecheck` | TypeScript check |
 | `pnpm deploy` | Route deploy by environment |
@@ -820,6 +828,28 @@ vpc-music/
 | `pnpm docker:stg` | Full staging stack |
 | `pnpm preflight` | Pre-deploy checks |
 | `pnpm sync:shared` | Sync `shared/` → `apps/api/shared/` |
+
+---
+
+## Testing
+
+The project uses **Vitest** across both apps with unit and component tests.
+
+### Web Tests (`apps/web`)
+- **Environment:** jsdom with `@testing-library/react` + `@testing-library/jest-dom`
+- **Run:** `pnpm test` (from root or `apps/web`)
+- **Coverage areas:** Pages (Landing, Login, Dashboard, Songs, Setlists, Settings, Admin, SharedSong, NotFound), components (ChordPro renderer, print stylesheet, theme toggle, app shell), utilities (transpose, Nashville numbers, OnSong converter, ChordPro parser, music constants, api-client), auth flows (protected routes, sandbox login, forgot/reset password), features (share management, song variations, real-time sync, export formats, PDF import), PWA/offline mode (manifest, meta tags, Vite config, service worker registration, offline fallback, TypeScript declarations)
+
+### API Tests (`apps/api`)
+- **Environment:** Node.js
+- **Run:** `pnpm --filter @vpc-music/api test`
+- **Coverage areas:** Error handling middleware (`createError`, `asyncHandler`, `errorHandler`), auth middleware (JWT validation), org context middleware (`orgContext`, `requireOrg`, `requireOrgRole`), email utilities (send, template builders), conductor/real-time sync (room management, events), PDF-to-ChordPro conversion pipeline (column detection, line assembly, chord classification, chord-to-lyric alignment, metadata extraction, section detection, plain-text fallback)
+
+### Shared Package Tests (`shared/`)
+- **Run:** `cd shared && npx vitest run`
+- **Coverage areas:** Zod validation schemas (song, variation), role constants, music constants
+
+Test files live alongside their source in `src/test/` directories within each app.
 
 ---
 
@@ -860,18 +890,15 @@ vpc-music/
 - [x] **Import .chrd** — convert legacy `.chrd` format to ChordPro via heuristic chord-line detection and bracket-wrapping
 - [x] **Export ChordPro** — download any song as a `.chopro` file
 - [x] **Real-time sync (backend)** — Socket.io conductor mode with room-based setlist sync (`conductor:join`, `member:join`, `conductor:goto`, `conductor:scroll`, `leave`) and `useConductor` hook
+- [x] **Real-time sync (UI)** — SetlistViewPage live mode with Lead/Join session buttons, connection indicator, members count, now-playing banner, conductor song navigation (Go buttons), current song highlighting, scroll sync (broadcast + receive), conductor-left warning, and leave session flow
+- [x] **Export OnSong / PDF** — export dropdown with ChordPro, OnSong (.onsong), and PDF (print-to-PDF) formats; `chordProToOnSong` converter in shared utilities; server-side OnSong conversion and PDF via styled HTML
+- [x] **Email delivery** — transactional emails via Mailgun SMTP (nodemailer); branded HTML templates for password-reset and team-invite emails; dev fallback logs to console via `jsonTransport`
+- [x] **Song variations** — full CRUD API for song variations (POST/PUT/DELETE), variation tabs on SongViewPage with content/key switching, create/edit/delete modals, pre-filled from original song content
 
-### In Progress / Partial
+### Recently Completed
 
-- [ ] **Real-time sync (UI)** — integrate `useConductor` hook into SetlistViewPage with conductor/member mode toggle (backend done, frontend pending)
-- [ ] **Export OnSong / PDF** — OnSong and PDF export endpoints exist but return 501 (ChordPro export works)
-- [ ] **Email delivery** — invite emails and password-reset emails are logged to console; actual SMTP/SendGrid integration pending
-
-### Planned
-
-- [ ] **Song variations** — CRUD API + UI for creating and managing song variations (schema exists)
-- [ ] **PDF import pipeline** — geometry-aware PDF → ChordPro conversion via PDF.co
-- [ ] **Offline mode** — service worker + local cache for field use
+- [x] **PDF import pipeline** — geometry-aware PDF → ChordPro conversion via PDF.co: 8-step pipeline (extract coordinates, column detection, line assembly, chord classification, chord-to-word alignment, metadata extraction, section detection, user review); multer file uploads; plain-text fallback ✅ *Implemented*
+- [x] **Offline mode** — PWA with service worker, Workbox runtime caching (NetworkFirst for API data, CacheFirst for fonts), precached app shell, branded offline fallback page ✅ *Implemented*
 
 ---
 
@@ -909,7 +936,7 @@ pnpm dev
 ```
 
 - **API** runs at `http://localhost:3001`
-- **Web** runs at `http://localhost:5175` (proxies `/api` → API)
+- **Web** runs at `http://localhost:5176` (proxies `/api` → API)
 
 ## License
 

@@ -1,5 +1,5 @@
 import { parseChordPro, transposeChordPro, chordToNashville } from "@vpc-music/shared";
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, forwardRef, useImperativeHandle } from "react";
 
 interface ChordProRendererProps {
   content: string;
@@ -10,18 +10,24 @@ interface ChordProRendererProps {
   onTranspose?: (newKey: string) => void;
 }
 
+export interface ChordProRendererHandle {
+  transposeUp: () => void;
+  transposeDown: () => void;
+  transposeReset: () => void;
+}
+
 /**
  * Renders a ChordPro string as formatted lyric/chord lines.
  * Supports transposition via the shared transpose engine.
  */
-export function ChordProRenderer({
+export const ChordProRenderer = forwardRef<ChordProRendererHandle, ChordProRendererProps>(function ChordProRenderer({
   content,
   songKey,
   showChords = true,
   nashville = false,
   fontSize = 16,
   onTranspose,
-}: ChordProRendererProps) {
+}, ref) {
   const [transpose, setTranspose] = useState(0);
 
   // Apply transposition to raw ChordPro, then parse
@@ -31,6 +37,12 @@ export function ChordProRenderer({
   const handleUp = () => setTranspose((t) => t + 1);
   const handleDown = () => setTranspose((t) => t - 1);
   const handleReset = () => setTranspose(0);
+
+  useImperativeHandle(ref, () => ({
+    transposeUp: handleUp,
+    transposeDown: handleDown,
+    transposeReset: handleReset,
+  }));
 
   return (
     <div className="space-y-2">
@@ -105,7 +117,7 @@ export function ChordProRenderer({
       </div>
     </div>
   );
-}
+});
 
 /** Renders a single lyric/chord line pair */
 function ChordLine({

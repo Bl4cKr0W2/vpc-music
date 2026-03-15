@@ -41,6 +41,24 @@ vi.mock("@vpc-music/shared", () => ({
   ALL_KEYS: ["C", "D", "E", "F", "G", "A", "B"],
 }));
 
+const mockGoToSong = vi.fn();
+const mockBroadcastScroll = vi.fn();
+const mockLeave = vi.fn();
+
+vi.mock("@/hooks/useConductor", () => ({
+  useConductor: () => ({
+    connected: false,
+    roomState: { conductor: null, members: [], currentSong: 0, currentSection: null },
+    currentSong: 0,
+    currentSection: null,
+    scrollTop: 0,
+    goToSong: mockGoToSong,
+    broadcastScroll: mockBroadcastScroll,
+    leave: mockLeave,
+    isConductor: false,
+  }),
+}));
+
 function renderPage(id = "sl-1") {
   return render(
     <MemoryRouter initialEntries={[`/setlists/${id}`]}>

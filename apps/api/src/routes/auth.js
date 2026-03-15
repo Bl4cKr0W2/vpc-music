@@ -10,6 +10,7 @@ import { env } from "../config/env.js";
 import { createError, asyncHandler } from "../middlewares/errorHandler.js";
 import { auth } from "../middlewares/auth.js";
 import { logger } from "../utils/logger.js";
+import { sendEmail, buildResetEmail } from "../utils/email.js";
 
 export const authRoutes = Router();
 
@@ -263,9 +264,14 @@ authRoutes.post(
       expiresAt,
     });
 
-    // TODO: Send actual email. For now, log the reset URL.
     const resetUrl = `${env.FRONTEND_URL}/reset-password?token=${token}`;
-    logger.info(`Password reset requested — ${resetUrl}`);
+    // Send password-reset email (falls back to console log in dev)
+    await sendEmail({
+      to: user.email,
+      subject: "Reset your VPC Music password",
+      html: buildResetEmail(resetUrl),
+    });
+    logger.info(`Password reset requested for ${user.email}`);
 
     res.json({ message: "If that email exists, a reset link has been sent." });
   })

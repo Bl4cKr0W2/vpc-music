@@ -37,6 +37,20 @@ vi.mock("@/lib/api-client", () => ({
     log: vi.fn(),
     remove: vi.fn(),
   },
+  songHistoryApi: {
+    list: vi.fn().mockResolvedValue({ history: [] }),
+  },
+  variationsApi: {
+    create: vi.fn(),
+    update: vi.fn(),
+    delete: vi.fn(),
+  },
+  stickyNotesApi: {
+    list: vi.fn().mockResolvedValue({ notes: [] }),
+    create: vi.fn(),
+    update: vi.fn(),
+    delete: vi.fn(),
+  },
 }));
 
 vi.mock("sonner", () => ({

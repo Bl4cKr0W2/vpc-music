@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#000435" />
+    <title>VPC Music — Offline</title>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      body {
+        font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
+        background: #000435;
+        color: #e8e8ec;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+        padding: 2rem;
+        text-align: center;
+      }
+      .container { max-width: 420px; }
+      .icon {
+        font-size: 4rem;
+        margin-bottom: 1.5rem;
+        opacity: 0.7;
+      }
+      h1 {
+        font-family: "Vidaloka", serif;
+        font-size: 1.75rem;
+        color: #ca9762;
+        margin-bottom: 0.75rem;
+      }
+      p {
+        font-size: 0.95rem;
+        line-height: 1.6;
+        opacity: 0.8;
+        margin-bottom: 1.5rem;
+      }
+      button {
+        background: #ca9762;
+        color: #000435;
+        border: none;
+        padding: 0.75rem 2rem;
+        border-radius: 0.5rem;
+        font-size: 0.9rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: opacity 0.2s;
+      }
+      button:hover { opacity: 0.85; }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="icon">📡</div>
+      <h1>You're Offline</h1>
+      <p>
+        VPC Music needs an internet connection on first load to cache your songs.
+        Previously viewed songs and setlists are available offline.
+      </p>
+      <button onclick="window.location.reload()">Try Again</button>
+    </div>
+  </body>
+</html>

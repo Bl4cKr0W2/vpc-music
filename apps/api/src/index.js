@@ -12,7 +12,7 @@ const server = createServer(app);
 // Socket.io for real-time features (live setlist sync, etc.)
 const io = new Server(server, {
   cors: {
-    origin: process.env.CORS_ORIGIN || "http://localhost:5175",
+    origin: process.env.CORS_ORIGIN || "http://localhost:5176",
     credentials: true,
   },
 });

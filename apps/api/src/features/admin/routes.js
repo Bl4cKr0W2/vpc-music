@@ -12,6 +12,7 @@ import { auth } from "../../middlewares/auth.js";
 import { orgContext, requireOrg, requireOrgRole } from "../../middlewares/orgContext.js";
 import { createError, asyncHandler } from "../../middlewares/errorHandler.js";
 import { logger } from "../../utils/logger.js";
+import { sendEmail, buildInviteEmail } from "../../utils/email.js";
 
 export const adminRoutes = Router();
 
@@ -114,8 +115,13 @@ adminRoutes.post(
     // Build an invite link that pre-fills the email on the login page
     const inviteUrl = `${env.FRONTEND_URL}/login?email=${encodeURIComponent(normalizedEmail)}`;
 
-    // TODO: Send actual invite email. For now, log the URL.
-    logger.info(`Invite sent to ${normalizedEmail} — ${inviteUrl}`);
+    // Send invite email (falls back to console log in dev)
+    await sendEmail({
+      to: normalizedEmail,
+      subject: "You're invited to VPC Music",
+      html: buildInviteEmail({ inviteUrl, displayName }),
+    });
+    logger.info(`Invite sent to ${normalizedEmail}`);
 
     res.status(201).json({
       user: {

@@ -5,3 +5,4 @@ export * from "./models/song.js";
 export * from "./utils/chordpro.js";
 export * from "./utils/transpose.js";
 export * from "./utils/nashville.js";
+export * from "./utils/onsong.js";

@@ -42,4 +42,11 @@ declare module "@vpc-music/shared" {
   // ── Transpose ──────────────────────────────────
   export function transposeChord(chord: string, semitones: number): string;
   export function transposeChordPro(input: string, semitones: number): string;
+
+  // ── Nashville Number System ────────────────────
+  export function chordToNashville(chord: string, key: string): string;
+  export function nashvilleChordPro(input: string, key: string): string;
+
+  // ── OnSong Converter ──────────────────────────
+  export function chordProToOnSong(input: string): string;
 }

@@ -88,6 +88,17 @@ export interface Song {
   updatedAt?: string;
 }
 
+export interface SongVariation {
+  id: string;
+  songId: string;
+  name: string;
+  content: string;
+  key?: string | null;
+  createdBy?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 export const songsApi = {
   list: (params?: { q?: string; tag?: string; key?: string; limit?: number; offset?: number }) => {
     const qs = new URLSearchParams();
@@ -99,7 +110,7 @@ export const songsApi = {
     const query = qs.toString();
     return request<{ songs: Song[]; total: number }>(`/api/songs${query ? `?${query}` : ""}`);
   },
-  get: (id: string) => request<{ song: Song; variations: any[] }>(`/api/songs/${id}`),
+  get: (id: string) => request<{ song: Song; variations: SongVariation[] }>(`/api/songs/${id}`),
   create: (data: Partial<Song>) =>
     request<{ song: Song }>("/api/songs", { method: "POST", body: JSON.stringify(data) }),
   update: (id: string, data: Partial<Song>) =>
@@ -109,6 +120,43 @@ export const songsApi = {
     request<{ song: Song }>("/api/songs/import/chrd", { method: "POST", body: JSON.stringify(data) }),
   exportChordPro: (id: string) =>
     fetch(`${API_ORIGIN}/api/songs/${id}/export/chordpro`, { credentials: "include" }),
+  exportOnSong: (id: string) =>
+    fetch(`${API_ORIGIN}/api/songs/${id}/export/onsong`, { credentials: "include" }),
+  exportPdf: (id: string) =>
+    `${API_ORIGIN}/api/songs/${id}/export/pdf`,
+  importPdf: async (file: File) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    const headers: Record<string, string> = {};
+    if (_activeOrgId) headers["X-Organization-Id"] = _activeOrgId;
+    const res = await fetch(`${API_ORIGIN}/api/songs/import/pdf`, {
+      method: "POST",
+      credentials: "include",
+      headers,
+      body: formData,
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body?.error?.message || `HTTP ${res.status}`);
+    }
+    return res.json() as Promise<{ song: Song; chordPro: string }>;
+  },
+};
+
+// ── Song Variations ──────────────────────────────
+export const variationsApi = {
+  create: (songId: string, data: { name: string; content: string; key?: string }) =>
+    request<{ variation: SongVariation }>(`/api/songs/${songId}/variations`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  update: (songId: string, varId: string, data: Partial<Pick<SongVariation, "name" | "content" | "key">>) =>
+    request<{ variation: SongVariation }>(`/api/songs/${songId}/variations/${varId}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    }),
+  delete: (songId: string, varId: string) =>
+    request<{ message: string }>(`/api/songs/${songId}/variations/${varId}`, { method: "DELETE" }),
 };
 
 // ── Setlists ─────────────────────────────────────
@@ -233,6 +281,50 @@ export const songUsageApi = {
     request<{ usages: SongUsage[] }>(`/api/songs/${songId}/usage`),
   remove: (songId: string, usageId: string) =>
     request<{ message: string }>(`/api/songs/${songId}/usage/${usageId}`, { method: "DELETE" }),
+};
+
+// ── Song Edit History ────────────────────────────
+export interface SongEdit {
+  id: string;
+  songId: string;
+  editedBy?: string | null;
+  field: string;
+  oldValue?: string | null;
+  newValue?: string | null;
+  createdAt?: string;
+}
+
+export const songHistoryApi = {
+  list: (songId: string) =>
+    request<{ history: SongEdit[] }>(`/api/songs/${songId}/history`),
+};
+
+// ── Sticky Notes ─────────────────────────────────
+export interface StickyNote {
+  id: string;
+  songId: string;
+  userId: string;
+  content: string;
+  color: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export const stickyNotesApi = {
+  list: (songId: string) =>
+    request<{ notes: StickyNote[] }>(`/api/songs/${songId}/notes`),
+  create: (songId: string, data: { content: string; color?: string }) =>
+    request<{ note: StickyNote }>(`/api/songs/${songId}/notes`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  update: (songId: string, noteId: string, data: { content?: string; color?: string }) =>
+    request<{ note: StickyNote }>(`/api/songs/${songId}/notes/${noteId}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    }),
+  delete: (songId: string, noteId: string) =>
+    request<{ message: string }>(`/api/songs/${songId}/notes/${noteId}`, { method: "DELETE" }),
 };
 
 // ── Share (read-only links) ──────────────────────

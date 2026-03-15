@@ -16,6 +16,7 @@ vi.mock("@/lib/api-client", () => ({
     create: (...args: any[]) => mockCreate(...args),
     update: (...args: any[]) => mockUpdate(...args),
     importChrd: vi.fn(),
+    importPdf: vi.fn(),
   },
 }));
 
@@ -204,6 +205,20 @@ describe("SongEditPage", () => {
       await waitFor(() => {
         expect(screen.getByRole("button", { name: /saving/i })).toBeDisabled();
       });
+    });
+  });
+
+  describe("PDF import", () => {
+    it("accepts .pdf files in the import input", () => {
+      renderNewSong();
+      const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+      expect(fileInput).toBeInTheDocument();
+      expect(fileInput.accept).toContain(".pdf");
+    });
+
+    it("shows supported formats including .pdf in the label", () => {
+      renderNewSong();
+      expect(screen.getByText(/\.pdf/i)).toBeInTheDocument();
     });
   });
 });
