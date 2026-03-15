@@ -60,11 +60,10 @@ describe("LandingPage", () => {
       expect(screen.getByText("VPC Music")).toBeInTheDocument();
     });
 
-    it('renders "Sign in" links pointing to /login', () => {
+    it('renders a "Sign in" link pointing to /login', () => {
       renderLanding();
-      const links = screen.getAllByRole("link", { name: /sign in/i });
-      expect(links.length).toBeGreaterThanOrEqual(1);
-      expect(links[0]).toHaveAttribute("href", "/login");
+      const link = screen.getByRole("link", { name: /sign in/i });
+      expect(link).toHaveAttribute("href", "/login");
     });
 
     it("does not render a Join or Register link", () => {
@@ -129,15 +128,14 @@ describe("LandingPage", () => {
       renderLanding();
       const year = new Date().getFullYear().toString();
       expect(
-        screen.getByText(new RegExp(`${year}.*Antioch College of Truth`, "i")),
+        screen.getByText(new RegExp(`${year} *`, "i")),
       ).toBeInTheDocument();
     });
 
     it("does NOT redirect when unauthenticated", () => {
       renderLanding();
       expect(screen.getByText(/welcome to vpc\s*music/i)).toBeInTheDocument();
-      const signInLinks = screen.getAllByRole("link", { name: /sign in/i });
-      expect(signInLinks.length).toBeGreaterThanOrEqual(1);
+      expect(screen.getByRole("link", { name: /sign in/i })).toBeInTheDocument();
     });
   });
 

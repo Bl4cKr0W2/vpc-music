@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { setlistsApi, type Setlist } from "@/lib/api-client";
 import { toast } from "sonner";
-import { Plus, ListMusic, Trash2 } from "lucide-react";
+import { Plus, ListMusic, Trash2, CheckCircle2 } from "lucide-react";
 
 export function SetlistsPage() {
   const [searchParams] = useSearchParams();
@@ -94,8 +94,13 @@ export function SetlistsPage() {
               className="relative rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-4 hover:border-[hsl(var(--secondary))] transition-colors group"
             >
               <Link to={`/setlists/${sl.id}`} className="block space-y-1">
-                <div className="font-medium text-[hsl(var(--foreground))] truncate pr-8">
-                  {sl.name}
+                <div className="flex items-center gap-2 pr-8">
+                  <span className="font-medium text-[hsl(var(--foreground))] truncate">
+                    {sl.name}
+                  </span>
+                  {sl.status === "complete" && (
+                    <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-green-600 dark:text-green-400" />
+                  )}
                 </div>
                 <div className="text-xs text-[hsl(var(--muted-foreground))]">
                   {sl.songCount ?? 0} song{(sl.songCount ?? 0) !== 1 ? "s" : ""}

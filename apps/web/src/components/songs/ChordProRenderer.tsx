@@ -1,10 +1,11 @@
-import { parseChordPro, transposeChordPro } from "@vpc-music/shared";
+import { parseChordPro, transposeChordPro, chordToNashville } from "@vpc-music/shared";
 import { useState, useRef, useEffect, useCallback } from "react";
 
 interface ChordProRendererProps {
   content: string;
   songKey?: string | null;
   showChords?: boolean;
+  nashville?: boolean;
   fontSize?: number;
   onTranspose?: (newKey: string) => void;
 }
@@ -17,6 +18,7 @@ export function ChordProRenderer({
   content,
   songKey,
   showChords = true,
+  nashville = false,
   fontSize = 16,
   onTranspose,
 }: ChordProRendererProps) {
@@ -94,6 +96,8 @@ export function ChordProRenderer({
                 chords={line.chords}
                 lyrics={line.lyrics}
                 showChords={showChords}
+                nashville={nashville}
+                songKey={songKey}
               />
             ))}
           </div>
@@ -108,10 +112,14 @@ function ChordLine({
   chords,
   lyrics,
   showChords,
+  nashville = false,
+  songKey,
 }: {
   chords: { chord: string; position: number }[];
   lyrics: string;
   showChords: boolean;
+  nashville?: boolean;
+  songKey?: string | null;
 }) {
   if (!chords.length && !lyrics.trim()) return null;
 
@@ -138,9 +146,10 @@ function ChordLine({
         </span>
       );
     }
+    const displayChord = nashville && songKey ? chordToNashville(chord, songKey) : chord;
     chordSpans.push(
       <span key={`ch-${i}`} className="font-bold text-[hsl(var(--secondary))]">
-        {chord}
+        {displayChord}
       </span>
     );
     lastEnd = position + chord.length;

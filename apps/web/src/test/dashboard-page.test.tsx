@@ -11,9 +11,11 @@ vi.mock("@/contexts/AuthContext", () => ({
 
 const mockSongsList = vi.fn();
 const mockSetlistsList = vi.fn();
+const mockEventsList = vi.fn();
 vi.mock("@/lib/api-client", () => ({
   songsApi: { list: (...args: any[]) => mockSongsList(...args) },
   setlistsApi: { list: (...args: any[]) => mockSetlistsList(...args) },
+  eventsApi: { list: (...args: any[]) => mockEventsList(...args) },
 }));
 
 function renderDashboard() {
@@ -28,6 +30,7 @@ describe("DashboardPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockUseAuth.mockReturnValue({ user: { displayName: "John", email: "john@test.com" } });
+    mockEventsList.mockResolvedValue({ events: [] });
   });
 
   // ===================== POSITIVE =====================
@@ -161,6 +164,82 @@ describe("DashboardPage", () => {
       mockSetlistsList.mockResolvedValue({ setlists: [] });
       renderDashboard();
       expect(screen.getByText("Welcome")).toBeInTheDocument();
+    });
+  });
+
+  // ===================== EVENTS =====================
+
+  describe("upcoming events", () => {
+    it("renders upcoming events section heading", async () => {
+      mockSongsList.mockResolvedValue({ songs: [], total: 0 });
+      mockSetlistsList.mockResolvedValue({ setlists: [] });
+      mockEventsList.mockResolvedValue({ events: [] });
+      renderDashboard();
+      expect(screen.getByText("Upcoming Events")).toBeInTheDocument();
+    });
+
+    it("shows empty state when no events", async () => {
+      mockSongsList.mockResolvedValue({ songs: [], total: 0 });
+      mockSetlistsList.mockResolvedValue({ setlists: [] });
+      mockEventsList.mockResolvedValue({ events: [] });
+      renderDashboard();
+      await waitFor(() => {
+        expect(screen.getByText("No upcoming events")).toBeInTheDocument();
+      });
+    });
+
+    it("renders event cards with title and date", async () => {
+      mockSongsList.mockResolvedValue({ songs: [], total: 0 });
+      mockSetlistsList.mockResolvedValue({ setlists: [] });
+      mockEventsList.mockResolvedValue({
+        events: [
+          {
+            id: "e1",
+            title: "Sunday Morning Worship",
+            date: "2025-08-10T10:00:00.000Z",
+            location: "Main Sanctuary",
+            setlistId: null,
+            setlistName: null,
+          },
+        ],
+      });
+      renderDashboard();
+      await waitFor(() => {
+        expect(screen.getByText("Sunday Morning Worship")).toBeInTheDocument();
+        expect(screen.getByText("Main Sanctuary")).toBeInTheDocument();
+      });
+    });
+
+    it("shows linked setlist name on event card", async () => {
+      mockSongsList.mockResolvedValue({ songs: [], total: 0 });
+      mockSetlistsList.mockResolvedValue({ setlists: [] });
+      mockEventsList.mockResolvedValue({
+        events: [
+          {
+            id: "e2",
+            title: "Youth Night",
+            date: "2025-08-15T18:30:00.000Z",
+            location: null,
+            setlistId: "sl1",
+            setlistName: "Youth Set",
+          },
+        ],
+      });
+      renderDashboard();
+      await waitFor(() => {
+        expect(screen.getByText("Youth Set")).toBeInTheDocument();
+        expect(screen.getByText("Youth Set").closest("a")).toHaveAttribute("href", "/setlists/sl1");
+      });
+    });
+
+    it("fetches events with upcoming=true", async () => {
+      mockSongsList.mockResolvedValue({ songs: [], total: 0 });
+      mockSetlistsList.mockResolvedValue({ setlists: [] });
+      mockEventsList.mockResolvedValue({ events: [] });
+      renderDashboard();
+      await waitFor(() => {
+        expect(mockEventsList).toHaveBeenCalledWith({ upcoming: true });
+      });
     });
   });
 });

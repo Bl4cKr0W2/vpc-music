@@ -15,6 +15,18 @@ vi.mock("@/lib/api-client", () => ({
     delete: (...args: any[]) => mockDelete(...args),
     exportChordPro: (...args: any[]) => mockExportChordPro(...args),
   },
+  shareApi: {
+    create: vi.fn().mockResolvedValue({ shareUrl: "/shared/abc", shareToken: {} }),
+    list: vi.fn().mockResolvedValue({ shares: [] }),
+    revoke: vi.fn(),
+    update: vi.fn().mockResolvedValue({ shareToken: {} }),
+    getShared: vi.fn(),
+  },
+  songUsageApi: {
+    log: vi.fn().mockResolvedValue({ usage: { id: "u1", songId: "song-1", usedAt: "2025-01-01" } }),
+    list: vi.fn().mockResolvedValue({ usages: [] }),
+    remove: vi.fn().mockResolvedValue({ message: "ok" }),
+  },
 }));
 
 vi.mock("react-router-dom", async () => {
@@ -93,6 +105,7 @@ describe("SongViewPage", () => {
       await waitFor(() => {
         expect(screen.getByText("Edit")).toBeInTheDocument();
         expect(screen.getByText("Export")).toBeInTheDocument();
+        expect(screen.getByText("Print")).toBeInTheDocument();
         expect(screen.getByText("Delete")).toBeInTheDocument();
         expect(screen.getByText("Chords")).toBeInTheDocument();
       });

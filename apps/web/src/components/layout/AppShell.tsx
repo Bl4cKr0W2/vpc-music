@@ -2,12 +2,13 @@ import { Outlet, NavLink, useNavigate } from "react-router-dom";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { ThemedLogo } from "@/components/ui/ThemedLogo";
-import { LogOut, Sun, Moon } from "lucide-react";
+import { LogOut, Sun, Moon, Shield } from "lucide-react";
 import { toast } from "sonner";
 
 export function AppShell() {
   const { resolvedTheme, toggleTheme } = useTheme();
-  const { user, logout } = useAuth();
+  const { user, logout, activeOrg } = useAuth();
+  const isAdmin = activeOrg?.role === "admin" || user?.role === "owner";
   const navigate = useNavigate();
 
   const handleLogout = async () => {
@@ -41,6 +42,11 @@ export function AppShell() {
           <NavLink to="/settings" className={navLinkClass}>
             Settings
           </NavLink>
+          {isAdmin && (
+            <NavLink to="/admin" className={navLinkClass}>
+              <span className="inline-flex items-center gap-1"><Shield className="h-3.5 w-3.5" />Admin</span>
+            </NavLink>
+          )}
           <button
             onClick={toggleTheme}
             className="p-1.5 rounded-md bg-[hsl(var(--muted))] text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] transition-colors"

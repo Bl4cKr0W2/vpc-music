@@ -8,7 +8,8 @@ import { SettingsPage } from "@/pages/settings/SettingsPage";
 const mockRefreshUser = vi.fn();
 vi.mock("@/contexts/AuthContext", () => ({
   useAuth: () => ({
-    user: { id: "u1", displayName: "John", email: "john@test.com", role: "editor" },
+    user: { id: "u1", displayName: "John", email: "john@test.com", role: "member", organizations: [{ id: "org1", name: "Test Church", role: "admin" }] },
+    activeOrg: { id: "org1", name: "Test Church", role: "admin" },
     refreshUser: mockRefreshUser,
   }),
 }));
@@ -82,9 +83,10 @@ describe("SettingsPage", () => {
       expect(screen.getByRole("heading", { name: /Change Password/ })).toBeInTheDocument();
     });
 
-    it("shows user role and ID", () => {
+    it("shows organization info and user ID", () => {
       renderPage();
-      expect(screen.getByText(/Role: editor/)).toBeInTheDocument();
+      expect(screen.getByText(/Organization: Test Church/)).toBeInTheDocument();
+      expect(screen.getByText(/Worship Leader/)).toBeInTheDocument();
       expect(screen.getByText(/User ID: u1/)).toBeInTheDocument();
     });
 

@@ -1,6 +1,7 @@
 import express from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
+import passport from "./config/passport.js";
 import { errorHandler } from "./middlewares/errorHandler.js";
 import { httpLogger } from "./middlewares/httpLogger.js";
 
@@ -9,6 +10,9 @@ import { authRoutes } from "./routes/auth.js";
 import { songRoutes } from "./features/songs/routes.js";
 import { setlistRoutes } from "./features/setlists/routes.js";
 import { platformRoutes } from "./features/platform/routes.js";
+import { adminRoutes } from "./features/admin/routes.js";
+import { eventRoutes } from "./features/events/routes.js";
+import { shareRoutes } from "./features/share/routes.js";
 
 const app = express();
 
@@ -19,6 +23,7 @@ app.use(cors({
 }));
 app.use(express.json({ limit: "5mb" }));
 app.use(cookieParser());
+app.use(passport.initialize());
 app.use(httpLogger);
 
 // ── Health check ─────────────────────────────────
@@ -31,6 +36,9 @@ app.use("/api/auth", authRoutes);
 app.use("/api/songs", songRoutes);
 app.use("/api/setlists", setlistRoutes);
 app.use("/api/platform", platformRoutes);
+app.use("/api/admin", adminRoutes);
+app.use("/api/events", eventRoutes);
+app.use("/api", shareRoutes);   // /api/songs/:id/share(s) + /api/shared/:token
 
 // ── Error handler (must be last) ─────────────────
 app.use(errorHandler);

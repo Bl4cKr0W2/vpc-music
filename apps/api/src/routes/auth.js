@@ -3,8 +3,9 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import { eq, and, gt, isNull } from "drizzle-orm";
+import passport from "passport";
 import { db } from "../db.js";
-import { users, passwordResetTokens } from "../schema/index.js";
+import { users, passwordResetTokens, organizationMembers, organizations } from "../schema/index.js";
 import { env } from "../config/env.js";
 import { createError, asyncHandler } from "../middlewares/errorHandler.js";
 import { auth } from "../middlewares/auth.js";
@@ -62,7 +63,7 @@ authRoutes.post(
         email: email.toLowerCase().trim(),
         passwordHash,
         displayName: displayName || email.split("@")[0],
-        role: "editor", // default role for new users
+        role: "member", // default global role for new users
       })
       .returning({
         id: users.id,
@@ -87,8 +88,8 @@ authRoutes.post(
   asyncHandler(async (req, res) => {
     const { email, password } = req.body;
 
-    if (!email || !password) {
-      throw createError(400, "Email and password are required");
+    if (!email) {
+      throw createError(400, "Email is required");
     }
 
     const [user] = await db
@@ -97,8 +98,25 @@ authRoutes.post(
       .where(eq(users.email, email.toLowerCase().trim()))
       .limit(1);
 
-    if (!user || !user.passwordHash) {
+    if (!user) {
       throw createError(401, "Invalid email or password");
+    }
+
+    // Invited user who hasn't set a password yet
+    if (!user.passwordHash) {
+      if (!password) {
+        return res.json({
+          needsPassword: true,
+          email: user.email,
+          displayName: user.displayName,
+        });
+      }
+      // They shouldn't be sending a password when there's none to compare
+      throw createError(401, "Invalid email or password");
+    }
+
+    if (!password) {
+      throw createError(400, "Password is required");
     }
 
     const valid = await bcrypt.compare(password, user.passwordHash);
@@ -107,6 +125,58 @@ authRoutes.post(
     }
 
     const token = signToken(user);
+    setTokenCookie(res, token);
+
+    res.json({
+      user: {
+        id: user.id,
+        email: user.email,
+        displayName: user.displayName,
+        role: user.role,
+      },
+      token,
+    });
+  })
+);
+
+// ── POST /api/auth/set-password ──────────────────────────────
+// First-time password setup for invited users (no existing password).
+authRoutes.post(
+  "/set-password",
+  asyncHandler(async (req, res) => {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+      throw createError(400, "Email and new password are required");
+    }
+    if (password.length < 8) {
+      throw createError(400, "Password must be at least 8 characters");
+    }
+
+    const [user] = await db
+      .select()
+      .from(users)
+      .where(eq(users.email, email.toLowerCase().trim()))
+      .limit(1);
+
+    if (!user) {
+      throw createError(404, "No account found for that email");
+    }
+
+    if (user.passwordHash) {
+      throw createError(400, "Password is already set. Use forgot-password to reset it.");
+    }
+
+    const passwordHash = await bcrypt.hash(password, 12);
+
+    await db
+      .update(users)
+      .set({ passwordHash, updatedAt: new Date() })
+      .where(eq(users.id, user.id));
+
+    // Auto-login after setting password
+    const updatedUser = { ...user, passwordHash };
+    const token = signToken(updatedUser);
     setTokenCookie(res, token);
 
     res.json({
@@ -147,7 +217,18 @@ authRoutes.get(
       throw createError(404, "User not found");
     }
 
-    res.json({ user });
+    // Include org memberships
+    const orgs = await db
+      .select({
+        id: organizations.id,
+        name: organizations.name,
+        role: organizationMembers.role,
+      })
+      .from(organizationMembers)
+      .innerJoin(organizations, eq(organizationMembers.organizationId, organizations.id))
+      .where(eq(organizationMembers.userId, user.id));
+
+    res.json({ user: { ...user, organizations: orgs } });
   })
 );
 
@@ -234,3 +315,81 @@ authRoutes.post(
     res.json({ message: "Password reset successfully. You can now log in." });
   })
 );
+
+// ── OAuth2: Google ───────────────────────────────────────────
+authRoutes.get("/google", (req, res, next) => {
+  if (!env.GOOGLE_CLIENT_ID) {
+    return res
+      .status(501)
+      .send(oauthErrorCallbackHtml("Google OAuth is not configured", 501));
+  }
+  passport.authenticate("google", {
+    scope: ["profile", "email"],
+    session: false,
+  })(req, res, next);
+});
+
+authRoutes.get(
+  "/google/callback",
+  (req, res, next) => {
+    passport.authenticate("google", { session: false }, (err, user, info) => {
+      if (err) {
+        return res.send(oauthErrorCallbackHtml(err.message || "Authentication failed", 500));
+      }
+      if (!user) {
+        const msg = info?.message || "No account found for this email. Contact your worship team lead to get added.";
+        return res.send(oauthErrorCallbackHtml(msg, 403));
+      }
+      req.user = user;
+      next();
+    })(req, res, next);
+  },
+  (req, res) => {
+    const token = signToken(req.user);
+    setTokenCookie(res, token);
+    res.send(oauthCallbackHtml(token, req.user));
+  },
+);
+
+/**
+ * Returns inline HTML/JS that posts the auth result to the opener window.
+ * Used by the popup-based OAuth flow.
+ */
+function oauthCallbackHtml(token, user) {
+  const safeUser = JSON.stringify({
+    id: user.id,
+    email: user.email,
+    displayName: user.displayName,
+    role: user.role,
+  }).replace(/</g, "\\u003c");
+  return `<!DOCTYPE html><html><body><script>
+    if (window.opener) {
+      window.opener.postMessage({
+        type: 'VPC_OAUTH_CALLBACK',
+        success: true,
+        token: ${JSON.stringify(token)},
+        user: ${safeUser}
+      }, ${JSON.stringify(env.FRONTEND_URL)});
+      window.close();
+    } else {
+      window.location.href = '/';
+    }
+  </script></body></html>`;
+}
+
+function oauthErrorCallbackHtml(message, status = 500) {
+  const safeMessage = JSON.stringify(message);
+  return `<!DOCTYPE html><html><body><script>
+    if (window.opener) {
+      window.opener.postMessage({
+        type: 'VPC_OAUTH_CALLBACK',
+        success: false,
+        error: ${safeMessage},
+        status: ${JSON.stringify(status)}
+      }, ${JSON.stringify(env.FRONTEND_URL)});
+      window.close();
+    } else {
+      document.body.innerText = ${safeMessage};
+    }
+  </script></body></html>`;
+}

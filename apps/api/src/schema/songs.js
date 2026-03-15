@@ -1,5 +1,6 @@
 // Drizzle ORM schema — songs, keys, metadata
 import { pgTable, text, timestamp, boolean, integer, uuid } from "drizzle-orm/pg-core";
+import { organizations } from "./organizations.js";
 
 export const songs = pgTable("songs", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -11,6 +12,7 @@ export const songs = pgTable("songs", {
   tags: text("tags"),            // comma-separated or JSON array
   content: text("content").notNull(), // ChordPro source
   isDraft: boolean("is_draft").default(false),
+  organizationId: uuid("organization_id").references(() => organizations.id),
   createdBy: uuid("created_by"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),

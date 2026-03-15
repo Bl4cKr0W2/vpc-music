@@ -8,7 +8,7 @@ import { User, Palette, Lock, Settings } from "lucide-react";
 type ThemeSetting = "dark" | "light" | "system";
 
 export function SettingsPage() {
-  const { user, refreshUser } = useAuth();
+  const { user, activeOrg, refreshUser } = useAuth();
   const { theme, setTheme } = useTheme();
 
   // Profile
@@ -205,7 +205,18 @@ export function SettingsPage() {
 
       {/* Account info */}
       <section className="space-y-2 text-xs text-[hsl(var(--muted-foreground))]">
-        <p>Role: {user?.role}</p>
+        {activeOrg && (
+          <>
+            <p>Organization: {activeOrg.name}</p>
+            <p>
+              Organization Role:{" "}
+              {activeOrg.role === "admin"
+                ? "Worship Leader"
+                : activeOrg.role.charAt(0).toUpperCase() + activeOrg.role.slice(1)}
+            </p>
+          </>
+        )}
+        {user?.role === "owner" && <p>Global Role: Owner</p>}
         <p>User ID: {user?.id}</p>
       </section>
     </div>

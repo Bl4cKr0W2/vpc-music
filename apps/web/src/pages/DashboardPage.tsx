@@ -1,24 +1,38 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
-import { songsApi, setlistsApi, type Song, type Setlist } from "@/lib/api-client";
-import { Music, ListMusic, Plus, Search } from "lucide-react";
+import { songsApi, setlistsApi, eventsApi, type Song, type Setlist, type Event } from "@/lib/api-client";
+import { Music, ListMusic, Plus, Search, Calendar, MapPin } from "lucide-react";
+
+function formatEventDate(iso: string): string {
+  const d = new Date(iso);
+  return d.toLocaleDateString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
 
 export function DashboardPage() {
   const { user } = useAuth();
   const [recentSongs, setRecentSongs] = useState<Song[]>([]);
   const [setlists, setSetlists] = useState<Setlist[]>([]);
+  const [upcomingEvents, setUpcomingEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function load() {
       try {
-        const [songRes, setlistRes] = await Promise.all([
+        const [songRes, setlistRes, eventRes] = await Promise.all([
           songsApi.list({ limit: 6 }),
           setlistsApi.list(),
+          eventsApi.list({ upcoming: true }),
         ]);
         setRecentSongs(songRes.songs);
         setSetlists(setlistRes.setlists);
+        setUpcomingEvents(eventRes.events);
       } catch {
         // Silently handle — components show empty state
       } finally {
@@ -61,6 +75,54 @@ export function DashboardPage() {
           <Search className="h-4 w-4" /> Browse Songs
         </Link>
       </div>
+
+      {/* Upcoming events */}
+      <section className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h3 className="text-lg font-brand text-[hsl(var(--foreground))] flex items-center gap-2">
+            <Calendar className="h-5 w-5 text-[hsl(var(--secondary))]" />
+            Upcoming Events
+          </h3>
+        </div>
+        {loading ? (
+          <div className="text-sm text-[hsl(var(--muted-foreground))]">Loading...</div>
+        ) : upcomingEvents.length === 0 ? (
+          <div className="rounded-lg border border-dashed border-[hsl(var(--border))] p-8 text-center text-sm text-[hsl(var(--muted-foreground))]">
+            No upcoming events
+          </div>
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {upcomingEvents.map((evt) => (
+              <div
+                key={evt.id}
+                className="rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-4"
+              >
+                <div className="font-medium text-[hsl(var(--foreground))] truncate">
+                  {evt.title}
+                </div>
+                <div className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">
+                  {formatEventDate(evt.date)}
+                </div>
+                {evt.location && (
+                  <div className="mt-1 flex items-center gap-1 text-xs text-[hsl(var(--muted-foreground))]">
+                    <MapPin className="h-3 w-3" /> {evt.location}
+                  </div>
+                )}
+                {evt.setlistName && (
+                  <div className="mt-2">
+                    <Link
+                      to={`/setlists/${evt.setlistId}`}
+                      className="inline-flex items-center gap-1 text-xs text-[hsl(var(--secondary))] hover:underline"
+                    >
+                      <ListMusic className="h-3 w-3" /> {evt.setlistName}
+                    </Link>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
 
       {/* Recent songs */}
       <section className="space-y-3">

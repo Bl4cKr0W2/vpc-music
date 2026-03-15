@@ -5,6 +5,7 @@ import { ProtectedRoute } from "./components/shared/ProtectedRoute";
 
 // ── Pages ────────────────────────────────────────
 import { LandingPage } from "./pages/LandingPage";
+import { SharedSongPage } from "./pages/SharedSongPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { SongListPage } from "./pages/songs/SongListPage";
 import { SongViewPage } from "./pages/songs/SongViewPage";
@@ -15,6 +16,7 @@ import { LoginPage } from "./pages/auth/LoginPage";
 import { ForgotPasswordPage } from "./pages/auth/ForgotPasswordPage";
 import { ResetPasswordPage } from "./pages/auth/ResetPasswordPage";
 import { SettingsPage } from "./pages/settings/SettingsPage";
+import { AdminPage } from "./pages/admin/AdminPage";
 import { NotFoundPage } from "./pages/NotFoundPage";
 
 export const router = createBrowserRouter([
@@ -23,6 +25,7 @@ export const router = createBrowserRouter([
   { path: "/login", element: <LoginPage /> },
   { path: "/forgot-password", element: <ForgotPasswordPage /> },
   { path: "/reset-password", element: <ResetPasswordPage /> },
+  { path: "/shared/:token", element: <SharedSongPage /> },
 
   // ── Authenticated routes (inside AppShell) ───
   {
@@ -42,6 +45,7 @@ export const router = createBrowserRouter([
       { path: "/setlists/new", element: <SetlistsPage /> },
       { path: "/setlists/:id", element: <SetlistViewPage /> },
       { path: "/settings", element: <SettingsPage /> },
+      { path: "/admin", element: <AdminPage /> },
       { path: "*", element: <NotFoundPage /> },
     ],
   },

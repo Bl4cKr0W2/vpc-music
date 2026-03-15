@@ -9,4 +9,11 @@ export const env = {
   CORS_ORIGIN: process.env.CORS_ORIGIN || "http://localhost:5175",
   FRONTEND_URL: process.env.FRONTEND_URL || "http://localhost:5175",
   PDF_CO_API_KEY: process.env.PDF_CO_API_KEY || "",
+
+  // OAuth2 — Google
+  GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID || "",
+  GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET || "",
+  GOOGLE_CALLBACK_URL:
+    process.env.GOOGLE_CALLBACK_URL ||
+    `${process.env.FRONTEND_URL || "http://localhost:5175"}/api/auth/google/callback`,
 };

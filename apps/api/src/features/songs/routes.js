@@ -1,15 +1,18 @@
 import { Router } from "express";
-import { eq, ilike, or, desc, sql } from "drizzle-orm";
+import { eq, ilike, or, and, desc, sql } from "drizzle-orm";
 import { db } from "../../db.js";
-import { songs, songVariations } from "../../schema/index.js";
+import { songs, songVariations, songUsages } from "../../schema/index.js";
 import { createError, asyncHandler } from "../../middlewares/errorHandler.js";
 import { auth } from "../../middlewares/auth.js";
+import { orgContext, requireOrg } from "../../middlewares/orgContext.js";
 
 export const songRoutes = Router();
 
 // ── GET /api/songs — list all songs (with optional search) ───
 songRoutes.get(
   "/",
+  auth,
+  orgContext,
   asyncHandler(async (req, res) => {
     const { q, tag, key: songKey, limit = "50", offset = "0" } = req.query;
 
@@ -28,6 +31,12 @@ songRoutes.get(
       .from(songs);
 
     const conditions = [];
+
+    // Scope to organization if context available
+    if (req.org) {
+      conditions.push(eq(songs.organizationId, req.org.id));
+    }
+
     if (q) {
       conditions.push(
         or(
@@ -45,7 +54,7 @@ songRoutes.get(
     }
 
     if (conditions.length > 0) {
-      query = query.where(conditions.length === 1 ? conditions[0] : sql`${conditions[0]} AND ${conditions.slice(1).reduce((a, c) => sql`${a} AND ${c}`)}`);
+      query = query.where(and(...conditions));
     }
 
     const result = await query
@@ -53,10 +62,11 @@ songRoutes.get(
       .limit(parseInt(limit, 10))
       .offset(parseInt(offset, 10));
 
-    // Get total count
-    const [{ count }] = await db
-      .select({ count: sql`count(*)::int` })
-      .from(songs);
+    // Get total count (scoped to org if available)
+    const countConditions = req.org ? [eq(songs.organizationId, req.org.id)] : [];
+    const [{ count }] = countConditions.length > 0
+      ? await db.select({ count: sql`count(*)::int` }).from(songs).where(and(...countConditions))
+      : await db.select({ count: sql`count(*)::int` }).from(songs);
 
     res.json({ songs: result, total: count });
   })
@@ -90,6 +100,8 @@ songRoutes.get(
 songRoutes.post(
   "/",
   auth,
+  orgContext,
+  requireOrg,
   asyncHandler(async (req, res) => {
     const { title, key, tempo, artist, year, tags, content, isDraft } = req.body;
 
@@ -108,6 +120,7 @@ songRoutes.post(
         tags: tags || null,
         content,
         isDraft: isDraft ?? false,
+        organizationId: req.org.id,
         createdBy: req.user.id,
       })
       .returning();
@@ -183,6 +196,8 @@ songRoutes.delete(
 songRoutes.post(
   "/import/chrd",
   auth,
+  orgContext,
+  requireOrg,
   asyncHandler(async (req, res) => {
     const { filename, content: rawContent } = req.body;
 
@@ -255,6 +270,7 @@ songRoutes.post(
       .values({
         title,
         content: chordProContent,
+        organizationId: req.org.id,
         createdBy: req.user.id,
       })
       .returning();
@@ -317,5 +333,78 @@ songRoutes.get(
   "/:id/export/pdf",
   asyncHandler(async (_req, _res) => {
     throw createError(501, "PDF export not yet implemented");
+  })
+);
+
+// ── POST /api/songs/:id/usage — log that a song was used ────
+songRoutes.post(
+  "/:id/usage",
+  auth,
+  orgContext,
+  asyncHandler(async (req, res) => {
+    const { usedAt, notes } = req.body;
+
+    if (!usedAt) throw createError(400, "usedAt date is required (YYYY-MM-DD)");
+
+    // Verify song exists
+    const [song] = await db
+      .select({ id: songs.id })
+      .from(songs)
+      .where(eq(songs.id, req.params.id))
+      .limit(1);
+
+    if (!song) throw createError(404, "Song not found");
+
+    const [usage] = await db
+      .insert(songUsages)
+      .values({
+        songId: req.params.id,
+        usedAt,
+        notes: notes || null,
+        organizationId: req.org?.id || null,
+        recordedBy: req.user.id,
+      })
+      .returning();
+
+    res.status(201).json({ usage });
+  })
+);
+
+// ── GET /api/songs/:id/usage — get usage history for a song ─
+songRoutes.get(
+  "/:id/usage",
+  auth,
+  asyncHandler(async (req, res) => {
+    const usages = await db
+      .select()
+      .from(songUsages)
+      .where(eq(songUsages.songId, req.params.id))
+      .orderBy(desc(songUsages.usedAt));
+
+    res.json({ usages });
+  })
+);
+
+// ── DELETE /api/songs/:id/usage/:usageId — remove a usage entry
+songRoutes.delete(
+  "/:id/usage/:usageId",
+  auth,
+  asyncHandler(async (req, res) => {
+    const [existing] = await db
+      .select({ id: songUsages.id })
+      .from(songUsages)
+      .where(
+        and(
+          eq(songUsages.id, req.params.usageId),
+          eq(songUsages.songId, req.params.id)
+        )
+      )
+      .limit(1);
+
+    if (!existing) throw createError(404, "Usage record not found");
+
+    await db.delete(songUsages).where(eq(songUsages.id, req.params.usageId));
+
+    res.json({ message: "Usage record deleted" });
   })
 );

@@ -8,7 +8,7 @@ import {
   type Song,
 } from "@/lib/api-client";
 import { toast } from "sonner";
-import { ArrowLeft, Plus, Trash2, GripVertical, Music, X } from "lucide-react";
+import { ArrowLeft, Plus, Trash2, GripVertical, Music, X, CheckCircle2, RotateCcw } from "lucide-react";
 import { ALL_KEYS } from "@vpc-music/shared";
 
 export function SetlistViewPage() {
@@ -107,6 +107,28 @@ export function SetlistViewPage() {
     }
   };
 
+  const handleMarkComplete = async () => {
+    if (!id) return;
+    try {
+      const res = await setlistsApi.markComplete(id);
+      setSetlist(res.setlist);
+      toast.success(`Setlist marked complete — ${res.usagesLogged} song usage(s) logged`);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to mark complete");
+    }
+  };
+
+  const handleReopen = async () => {
+    if (!id) return;
+    try {
+      const res = await setlistsApi.reopen(id);
+      setSetlist(res.setlist);
+      toast.success("Setlist reopened");
+    } catch (err: any) {
+      toast.error(err.message || "Failed to reopen");
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -137,6 +159,21 @@ export function SetlistViewPage() {
           <ArrowLeft className="h-4 w-4" /> Setlists
         </Link>
         <div className="flex-1" />
+        {setlist.status === "complete" ? (
+          <button
+            onClick={handleReopen}
+            className="inline-flex items-center gap-1.5 rounded-md border border-[hsl(var(--border))] px-3 py-1.5 text-xs hover:bg-[hsl(var(--muted))] transition-colors"
+          >
+            <RotateCcw className="h-3.5 w-3.5" /> Reopen
+          </button>
+        ) : (
+          <button
+            onClick={handleMarkComplete}
+            className="inline-flex items-center gap-1.5 rounded-md bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-700 transition-colors"
+          >
+            <CheckCircle2 className="h-3.5 w-3.5" /> Mark Complete
+          </button>
+        )}
         <button
           onClick={handleDeleteSetlist}
           className="inline-flex items-center gap-1.5 rounded-md border border-[hsl(var(--destructive))] px-3 py-1.5 text-xs text-[hsl(var(--destructive))] hover:bg-[hsl(var(--destructive))] hover:text-[hsl(var(--destructive-foreground))] transition-colors"
@@ -147,7 +184,18 @@ export function SetlistViewPage() {
 
       {/* Setlist info */}
       <div>
-        <h2 className="text-2xl font-brand text-[hsl(var(--foreground))]">{setlist.name}</h2>
+        <div className="flex items-center gap-2">
+          <h2 className="text-2xl font-brand text-[hsl(var(--foreground))]">{setlist.name}</h2>
+          {setlist.status === "complete" ? (
+            <span className="inline-flex items-center gap-1 rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800 dark:bg-green-900/30 dark:text-green-400">
+              <CheckCircle2 className="h-3 w-3" /> Complete
+            </span>
+          ) : (
+            <span className="inline-flex items-center rounded-full bg-[hsl(var(--muted))] px-2 py-0.5 text-xs font-medium text-[hsl(var(--muted-foreground))]">
+              Draft
+            </span>
+          )}
+        </div>
         {setlist.category && (
           <p className="text-sm text-[hsl(var(--muted-foreground))]">{setlist.category}</p>
         )}

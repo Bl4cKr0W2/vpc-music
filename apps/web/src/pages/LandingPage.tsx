@@ -1,6 +1,7 @@
 import { Link, Navigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { ThemedLogo } from "@/components/ui/ThemedLogo";
+import { ThemeToggleButton } from "@/components/ui/ThemeToggleButton";
 import {
   Music,
   ListMusic,
@@ -22,12 +23,12 @@ const coreFeatures = [
   {
     icon: Music,
     title: "ChordPro Native",
-    desc: "Industry-standard ChordPro format as the canonical song language — import, edit, and render with full directive support.",
+    desc: "Uses the industry-standard ChordPro format so you can import, edit, and render with full directive support.",
   },
   {
     icon: ArrowRightLeft,
     title: "Instant Transpose",
-    desc: "Step-by-step semitone buttons or a direct key picker with all 12 chromatic keys — chords recalculate in real time.",
+    desc: "Step-by-step semitone buttons or a direct key picker with all 12 chromatic keys. Chords recalculate in real time.",
   },
   {
     icon: ListMusic,
@@ -37,7 +38,7 @@ const coreFeatures = [
   {
     icon: Users,
     title: "Conductor Mode",
-    desc: "Real-time sync across every connected device — the conductor controls what song and scroll position the whole team sees.",
+    desc: "Real-time sync across every connected device. The conductor controls what song and scroll position the whole team sees.",
   },
   {
     icon: Smartphone,
@@ -47,7 +48,7 @@ const coreFeatures = [
   {
     icon: FileInput,
     title: "Flexible Import",
-    desc: "Bring your library — import .chrd legacy files, .cho/.chordpro/.chopro ChordPro files, or paste plain text and add chords.",
+    desc: "Bring your library. Import .chrd legacy files, .cho/.chordpro/.chopro ChordPro files, or paste plain text and add chords.",
   },
 ];
 
@@ -55,17 +56,17 @@ const additionalFeatures = [
   {
     icon: Shield,
     title: "Role-Based Access",
-    desc: "Viewer, Editor, and Admin roles keep your library safe while giving the right people the right permissions.",
+    desc: "Worship Leader, Musician, and Observer roles keep your library safe while giving the right people the right permissions.",
   },
   {
     icon: Palette,
     title: "Dark & Light Themes",
-    desc: "Switch between dark and light modes with a single click — your preference persists across sessions.",
+    desc: "Switch between dark and light modes with a single click. Your preference persists across sessions.",
   },
   {
     icon: MonitorSmartphone,
     title: "Responsive Design",
-    desc: "Optimized for phones, tablets on music stands, laptops, and desktops — looks great on every screen size.",
+    desc: "Optimized for phones, tablets on music stands, laptops, and desktops. Looks great on every screen size.",
   },
   {
     icon: Zap,
@@ -80,7 +81,7 @@ const additionalFeatures = [
   {
     icon: Clock,
     title: "Dashboard & Quick Actions",
-    desc: "Jump straight to recent songs, setlists, or create new content — everything one click from your dashboard.",
+    desc: "Jump straight to recent songs, setlists, or create new content. Everything is one click from your dashboard.",
   },
 ];
 
@@ -109,6 +110,7 @@ export function LandingPage() {
           <span className="text-lg font-brand text-[hsl(var(--secondary))]">VPC Music</span>
         </div>
         <div className="flex items-center gap-3">
+          <ThemeToggleButton position="inline" />
           <Link
             to="/login"
             className="rounded-md border border-[hsl(var(--border))] px-4 py-1.5 text-sm font-medium text-[hsl(var(--foreground))] hover:bg-[hsl(var(--muted))] transition-colors"
@@ -121,27 +123,13 @@ export function LandingPage() {
       {/* ─── Hero ────────────────────────────────────────────── */}
       <header className="flex flex-col items-center gap-6 px-6 pt-16 pb-20 text-center max-w-3xl mx-auto">
         <h1 className="text-4xl md:text-5xl lg:text-6xl font-brand text-[hsl(var(--secondary))] leading-tight">
-          Welcome to VPC&nbsp;Music
+          Welcome to VPC Music
         </h1>
         <p className="max-w-xl text-lg text-[hsl(var(--muted-foreground))]">
-          Our team&rsquo;s hub for managing chord charts, building setlists, and staying
-          in sync during worship and rehearsal. Everything lives here&nbsp;&mdash; accessible
+          Our team's hub for managing chord charts, building setlists, and staying
+          in sync during worship and rehearsal. Everything lives here, accessible
           from any device, any time.
         </p>
-        <div className="flex gap-4 mt-2">
-          <Link
-            to="/login"
-            className="rounded-md bg-[hsl(var(--secondary))] px-6 py-2.5 text-sm font-medium text-[hsl(var(--secondary-foreground))] hover:opacity-90 transition-opacity"
-          >
-            Sign in
-          </Link>
-          <a
-            href="#features"
-            className="rounded-md border border-[hsl(var(--border))] px-6 py-2.5 text-sm font-medium text-[hsl(var(--foreground))] hover:bg-[hsl(var(--muted))] transition-colors"
-          >
-            Learn more
-          </a>
-        </div>
       </header>
 
       {/* ─── Core Features ───────────────────────────────────── */}
@@ -150,7 +138,7 @@ export function LandingPage() {
           What you can do here
         </h2>
         <p className="text-center text-[hsl(var(--muted-foreground))] mb-10 max-w-lg mx-auto">
-          From chord charts to live performance — here&rsquo;s what VPC Music gives the team.
+          From chord charts to live performance, here's what VPC Music gives the team.
         </p>
 
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
@@ -220,7 +208,7 @@ export function LandingPage() {
 
       {/* ─── Footer ──────────────────────────────────────────── */}
       <footer className="border-t border-[hsl(var(--border))] py-6 text-center text-xs text-[hsl(var(--muted-foreground))]">
-        &copy; {new Date().getFullYear()} Antioch College of Truth &mdash; VPC Music
+        © {new Date().getFullYear()} VPC Music
       </footer>
     </div>
   );

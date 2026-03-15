@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { authApi } from "@/lib/api-client";
 import { ThemedLogo } from "@/components/ui/ThemedLogo";
+import { ThemeToggleButton } from "@/components/ui/ThemeToggleButton";
 import { toast } from "sonner";
 
 export function ForgotPasswordPage() {
@@ -25,6 +26,7 @@ export function ForgotPasswordPage() {
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-[hsl(var(--background))] px-4">
+      <ThemeToggleButton />
       <div className="w-full max-w-sm space-y-6 rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-8 shadow-lg">
         <div className="flex flex-col items-center gap-3">
           <ThemedLogo className="h-16 w-16 rounded-lg" />

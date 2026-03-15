@@ -190,3 +190,63 @@
     background-color: hsl(235 100% 10%);
   }
 }
+
+/* ── Print stylesheet ─────────────────────────────────────────── */
+@media print {
+  /* Hide non-printable chrome: nav, toolbars, modals, scrollbars */
+  .print-hidden,
+  header,
+  nav,
+  [data-print-hidden] {
+    display: none !important;
+  }
+
+  /* Force light colours for readability on paper */
+  body {
+    background: white !important;
+    color: black !important;
+    font-size: 12pt;
+  }
+
+  /* Remove container scroll constraints so all content prints */
+  .print-sheet {
+    max-height: none !important;
+    overflow: visible !important;
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+  }
+
+  /* Chord lines — keep monospace, black on white */
+  .print-sheet * {
+    color: black !important;
+    background: transparent !important;
+  }
+
+  /* Song title block */
+  .print-meta {
+    margin-bottom: 0.5cm;
+  }
+
+  .print-meta h1,
+  .print-meta h2 {
+    color: black !important;
+    font-size: 18pt;
+    margin: 0 0 4pt;
+  }
+
+  .print-meta span {
+    color: #333 !important;
+    font-size: 10pt;
+  }
+
+  /* Avoid breaking inside sections / chord lines */
+  pre, .chord-line {
+    break-inside: avoid;
+  }
+
+  /* Margin for clean output */
+  @page {
+    margin: 1.5cm;
+  }
+}

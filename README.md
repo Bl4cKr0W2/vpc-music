@@ -267,12 +267,15 @@ PDF upload
 ### 👥 User Roles & Settings
 
 - **Login** — secure authentication
+- **Organizations** — churches/teams modeled as organizations; users belong to orgs with per-org roles
 - **Roles**
-  | Role | Permissions |
-  |---|---|
-  | **Viewer** | View songs + customize personal copies |
-  | **Editor** | Edit global songs (with versioning & tagging) |
-  | **Admin** | Full access + delegate permissions |
+  | Scope | Role | Permissions |
+  |---|---|---|
+  | Global | **Owner** | Super-admin across all orgs |
+  | Org | **Worship Leader** (admin) | Full access within org — manage songs, setlists, events, invite members |
+  | Org | **Musician** | View and interact with org content |
+  | Org | **Observer** | Read-only access to org content |
+- **Share Links** — generate token-based read-only links to share individual songs with anyone (no login required); recipients can transpose, toggle chords, and auto-scroll but cannot edit, delete, or see the library
 - **User Settings**
   - Default themes
   - Notifications (new songs, modifications, shared content)
@@ -647,10 +650,10 @@ An extensive look at existing tools in the chord chart, setlist, and worship mus
 | Setlist builder | ✅ | ✅ | ✅ | - | ✅ | ✅ |
 | MIDI integration | ✅ | - | ✅ | - | - | - |
 | Foot pedal support | ✅ | ✅ | ✅ | - | - | Planned |
-| Multi-user roles | - | ✅ | ✅ | - | - | Partial (schema only, not enforced) |
+| Multi-user roles | - | ✅ | ✅ | - | - | ✅ (org-scoped: owner, admin, musician, observer) |
 | Live sync to band | - | ✅ | ✅ | - | - | Partial (backend + hook, no UI) |
 | Song edit history | - | - | ✅ | - | - | Planned |
-| Nashville Numbers | - | - | - | - | - | Planned (constants defined) |
+| Nashville Numbers | - | - | - | - | - | ✅ Completed |
 | Custom themes | ✅ | - | ✅ | - | - | Partial (dark/light/system only) |
 | Offline mode | ✅ | ✅ | ✅ | - | ✅ | Planned |
 | Free tier | - | ✅ | - | ✅ | ✅ | TBD |
@@ -681,16 +684,23 @@ vpc-music/
 │   │   │   │   ├── users.js
 │   │   │   │   ├── songs.js
 │   │   │   │   ├── setlists.js
+│   │   │   │   ├── events.js
+│   │   │   │   ├── organizations.js
+│   │   │   │   ├── organizationMembers.js
+│   │   │   │   ├── shareTokens.js
 │   │   │   │   ├── passwordResetTokens.js
 │   │   │   │   └── index.js
 │   │   │   ├── features/       #   Domain-driven feature modules
 │   │   │   │   ├── songs/      #     CRUD + search + .chrd import + ChordPro export
 │   │   │   │   ├── setlists/   #     Setlist CRUD + song ordering/add/remove
+│   │   │   │   ├── events/     #     Event CRUD (upcoming events on dashboard)
+│   │   │   │   ├── share/      #     Token-based read-only song sharing
+│   │   │   │   ├── admin/      #     Org-scoped user management
 │   │   │   │   └── platform/   #     User settings, profile, password change
 │   │   │   ├── realtime/       #   Socket.io modules
 │   │   │   │   └── conductor.js #    Live setlist conductor mode
 │   │   │   ├── routes/         #   Top-level routes (auth: register, login, logout, me, forgot/reset password)
-│   │   │   ├── middlewares/    #   auth, errorHandler, httpLogger
+│   │   │   ├── middlewares/    #   auth, errorHandler, httpLogger, orgContext
 │   │   │   └── utils/          #   logger
 │   │   ├── src/test/           #   API tests (Vitest)
 │   │   ├── drizzle.config.js
@@ -815,22 +825,53 @@ vpc-music/
 
 ## Roadmap / TODO
 
-> Tracked tasks for upcoming implementation work.
+> Tracked tasks for implementation work. Completed items first, then in-progress, then planned.
+
+### Completed
 
 - [x] **Landing page** — public marketing/welcome page shown to unauthenticated visitors; logged-in users automatically redirect to the dashboard
 - [x] **Auth-gated routing** — if authenticated → `/dashboard`; if not → `/` (landing page); protect app routes behind `ProtectedRoute` auth guard
-- [x] **Dashboard page** — post-login home view (recent songs, setlists overview, quick actions)
-- [x] **Registration flow** — sign-up page with email/password, linked from landing and login pages
+- [x] **Dashboard page** — post-login home view (recent songs, setlists overview, upcoming events, quick actions)
+- [x] **Registration flow** — sign-up page with email/password (invite-only, no public registration)
 - [x] **Forgot password / reset** — full password recovery flow with crypto token generation, expiry, and reset form
-- [ ] **PDF import pipeline** — geometry-aware PDF → ChordPro conversion via PDF.co
-- [x] **Real-time sync (backend)** — Socket.io conductor mode with room-based setlist sync (`conductor:join`, `member:join`, `conductor:goto`, `conductor:scroll`, `leave`) and `useConductor` hook
-- [ ] **Real-time sync (UI)** — integrate `useConductor` hook into SetlistViewPage with conductor/member mode toggle
-- [ ] **Role enforcement** — add authorization middleware to enforce viewer/editor/admin permissions on API routes
-- [ ] **Nashville Number System** — render chords as Nashville numbers relative to song key (constants defined in `shared/`)
-- [ ] **Song variations** — CRUD API + UI for creating and managing song variations (schema exists)
-- [ ] **Print stylesheet** — `@media print` rules and print button for clean chord chart output
-- [ ] **Offline mode** — service worker + local cache for field use
+- [x] **Google OAuth** — sign in with Google via Passport + popup-based OAuth2 flow; invite-only (rejects unknown emails with a modal error)
+- [x] **Invite-only access** — no public sign-up; unknown Google/email users are rejected with "Contact your worship team lead to get added"
+- [x] **Admin user management** — worship leader (admin role) can list, invite, update roles, and remove team members via `/api/admin/users` endpoints
+- [x] **Invite link with email pre-fill** — admin invite generates a `/login?email=...` link; login page reads the param, auto-expands the email form, and pre-fills the address
+- [x] **Set-password flow** — invited users with no password are prompted to create one on first email login; Google OAuth users skip this entirely
+- [x] **Seed script** — `pnpm db:seed` populates 3 sample users (admin worship leader, musician, observer — all with password `password123`), 3 worship songs (full ChordPro), 3 setlists, and 3 upcoming events; idempotent
+- [x] **Sandbox mode** — set `VITE_SANDBOX=true` to show quick-login buttons on the login page pre-filling credentials for seeded demo accounts (Admin, Musician, Observer); env-gated, off by default
+- [x] **Print stylesheet** — `@media print` rules for clean chord chart output; Print button on SongViewPage and SharedSongPage; hides toolbars, nav, modals, usage history, and footers in print; removes scroll constraints; forces light colors; avoids page breaks inside chord lines
+- [x] **Share token management UI** — full dialog to manage share links from SongViewPage; create new links with optional label and expiry (1/7/30/90 days); list active and revoked tokens with status badges; copy share URL to clipboard; open link in new tab; inline label editing (click-to-rename, Enter/Escape); revoke with confirmation; PATCH API endpoint for label updates; 34 tests
+- [x] **Admin UI** — full team management page at `/admin`; list org members with email, display name, role badges, invited status; invite new members by email with display name and role picker; change member roles (admin/musician/observer) via inline selector; remove members with confirmation; conditional nav link visible only to admins/owners; access-denied guard for non-admins; 25 tests
+- [x] **Nashville Number System** — `chordToNashville(chord, key)` conversion utility maps chord names to Nashville numbers (1–7 with flats) preserving quality suffixes; slash chord support; `nashvilleChordPro()` for full ChordPro conversion; Nashville toggle button on SongViewPage and SharedSongPage (visible when chords on + song has a key); active-state styling; integrates with existing transpose (transpose first, then convert to numbers); 42 tests
+- [x] **Events system** — full CRUD API for worship events (`/api/events`) with title, date, location, notes, and optional setlist link; upcoming events shown on dashboard
+- [x] **Organization architecture** — multi-org model with `organizations` + `organization_members` tables; org-scoped content (songs, setlists, events); `orgContext` middleware auto-selects org + enforces per-org roles (admin/musician/observer); global `owner` role for super-admin; frontend `AuthContext` exposes `activeOrg` and api-client sends `X-Organization-Id` header
+- [x] **Share links (read-only)** — token-based public song sharing via `share_tokens` table; `POST /api/songs/:id/share` generates a secure token; `GET /api/shared/:token` returns song data without auth; standalone `SharedSongPage` renders song with transpose/chords/auto-scroll but no edit/delete/upload/library access; share button on `SongViewPage` with one-click copy-to-clipboard
+- [x] **Songs CRUD** — full API (`GET`, `POST`, `PUT`, `DELETE`) + list page, view page, edit page with search/filter
+- [x] **Setlists CRUD** — full API + UI for setlists with song ordering, per-song key overrides, and notes
+- [x] **Setlist completion** — setlists have a `draft`/`complete` status; "Mark Complete" logs usage for every song in the setlist automatically; "Reopen" reverts to draft; status badges on list and detail views
+- [x] **Song usage tracking** — `song_usages` table tracks when each song was used; `POST /api/songs/:id/usage` logs a usage with date and optional notes; `GET /api/songs/:id/usage` returns full history; SongViewPage shows "Log Usage" button with date picker + usage history timeline; completing a setlist auto-logs all its songs
+- [x] **ChordPro rendering** — parse and render ChordPro format with sections, directives, and chord-lyric pairs
+- [x] **Transpose** — semitone up/down/reset with chord recalculation across the entire song
 - [x] **Auto-scroll** — configurable speed-based lyrics scrolling during performance via `requestAnimationFrame`
+- [x] **Dark / Light theme** — theme toggle (dark, light, system) persisted to localStorage with `prefers-color-scheme` support
+- [x] **Settings page** — profile editing (display name), password change, and theme selector
+- [x] **Import .chrd** — convert legacy `.chrd` format to ChordPro via heuristic chord-line detection and bracket-wrapping
+- [x] **Export ChordPro** — download any song as a `.chopro` file
+- [x] **Real-time sync (backend)** — Socket.io conductor mode with room-based setlist sync (`conductor:join`, `member:join`, `conductor:goto`, `conductor:scroll`, `leave`) and `useConductor` hook
+
+### In Progress / Partial
+
+- [ ] **Real-time sync (UI)** — integrate `useConductor` hook into SetlistViewPage with conductor/member mode toggle (backend done, frontend pending)
+- [ ] **Export OnSong / PDF** — OnSong and PDF export endpoints exist but return 501 (ChordPro export works)
+- [ ] **Email delivery** — invite emails and password-reset emails are logged to console; actual SMTP/SendGrid integration pending
+
+### Planned
+
+- [ ] **Song variations** — CRUD API + UI for creating and managing song variations (schema exists)
+- [ ] **PDF import pipeline** — geometry-aware PDF → ChordPro conversion via PDF.co
+- [ ] **Offline mode** — service worker + local cache for field use
 
 ---
 
@@ -853,6 +894,9 @@ pnpm install
 # 3. Environment
 cp .env.example .env
 cp apps/api/.env.example apps/api/.env
+cp apps/web/.env.example apps/web/.env.local
+# Optional: enable sandbox quick-login buttons
+# Set VITE_SANDBOX=true in apps/web/.env.local
 
 # 4. Start PostgreSQL
 pnpm docker:up

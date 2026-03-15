@@ -6,23 +6,33 @@ import {
   useCallback,
   type ReactNode,
 } from "react";
-import { authApi } from "@/lib/api-client";
+import { authApi, setActiveOrganizationId } from "@/lib/api-client";
+
+export interface OrgMembership {
+  id: string;
+  name: string;
+  role: "admin" | "musician" | "observer";
+}
 
 export interface User {
   id: string;
   email: string;
   displayName: string;
-  role: "viewer" | "editor" | "admin";
+  role: "owner" | "member";
+  organizations?: OrgMembership[];
 }
 
 interface AuthContextValue {
   user: User | null;
   isAuthenticated: boolean;
   isLoading: boolean;
+  /** The active org (first/only org, or selected org) */
+  activeOrg: OrgMembership | null;
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string, displayName?: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
+  setUser: (user: User) => void;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -30,6 +40,14 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+
+  // Derive active org: auto-select first/only org
+  const activeOrg: OrgMembership | null = user?.organizations?.[0] ?? null;
+
+  // Keep api-client in sync with active org
+  useEffect(() => {
+    setActiveOrganizationId(activeOrg?.id ?? null);
+  }, [activeOrg?.id]);
 
   // On mount, try to restore session from cookie
   const refreshUser = useCallback(async () => {
@@ -71,10 +89,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         user,
         isAuthenticated: !!user,
         isLoading,
+        activeOrg,
         login,
         register,
         logout,
         refreshUser,
+        setUser,
       }}
     >
       {children}
