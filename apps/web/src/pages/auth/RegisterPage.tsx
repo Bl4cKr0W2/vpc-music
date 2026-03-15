@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
+import { ThemedLogo } from "@/components/ui/ThemedLogo";
 import { toast } from "sonner";
 
 export function RegisterPage() {
@@ -40,7 +41,7 @@ export function RegisterPage() {
     <div className="flex min-h-screen items-center justify-center bg-[hsl(var(--background))] px-4">
       <div className="w-full max-w-sm space-y-6 rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-8 shadow-lg">
         <div className="flex flex-col items-center gap-3">
-          <img src="/logo.png" alt="VPC Music" className="h-16 w-16" />
+          <ThemedLogo className="h-16 w-16 rounded-lg" />
           <h1 className="text-2xl font-brand text-[hsl(var(--secondary))]">
             Create Account
           </h1>

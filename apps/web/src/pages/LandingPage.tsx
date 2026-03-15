@@ -1,5 +1,6 @@
 import { Link, Navigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
+import { ThemedLogo } from "@/components/ui/ThemedLogo";
 import {
   Music,
   ListMusic,
@@ -104,7 +105,7 @@ export function LandingPage() {
       {/* ─── Top Bar ─────────────────────────────────────────── */}
       <nav className="flex items-center justify-between px-6 py-4 max-w-6xl mx-auto">
         <div className="flex items-center gap-2">
-          <img src="/logo.png" alt="VPC Music" className="h-8 w-8" />
+          <ThemedLogo className="h-8 w-8 rounded-md" />
           <span className="text-lg font-brand text-[hsl(var(--secondary))]">VPC Music</span>
         </div>
         <div className="flex items-center gap-3">

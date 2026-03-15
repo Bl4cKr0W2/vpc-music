@@ -1,6 +1,7 @@
 import { Outlet, NavLink, useNavigate } from "react-router-dom";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
+import { ThemedLogo } from "@/components/ui/ThemedLogo";
 import { LogOut, Sun, Moon } from "lucide-react";
 import { toast } from "sonner";
 
@@ -24,7 +25,7 @@ export function AppShell() {
     <div className="min-h-screen bg-[hsl(var(--background))] text-[hsl(var(--foreground))]">
       <header className="border-b border-[hsl(var(--border))] bg-[hsl(var(--card))] px-6 py-3 flex items-center justify-between">
         <NavLink to="/dashboard" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
-          <img src="/logo.png" alt="" className="h-8 w-8" />
+          <ThemedLogo className="h-8 w-8 rounded-md" alt="" />
           <span className="font-brand text-xl text-[hsl(var(--secondary))]">VPC Music</span>
         </NavLink>
         <nav className="flex items-center gap-6 text-sm">

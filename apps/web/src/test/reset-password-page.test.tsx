@@ -24,6 +24,10 @@ vi.mock("sonner", () => ({
   toast: { success: vi.fn(), error: vi.fn() },
 }));
 
+vi.mock("@/contexts/ThemeContext", () => ({
+  useTheme: () => ({ resolvedTheme: "dark", toggleTheme: vi.fn() }),
+}));
+
 function renderPage(token?: string) {
   const route = token ? `/reset-password?token=${token}` : "/reset-password";
   return render(

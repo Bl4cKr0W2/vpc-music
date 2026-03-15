@@ -3,7 +3,7 @@
  *
  * Generates all favicon / PWA icon sizes from the source logo.svg.
  * Also regenerates logo.png (512×512) used by the web app.
- * Produces tile icons in three colour variants:
+ * Produces tile icons in three colour variants with rounded corners:
  *   • white  — white background, original multi-colour logo
  *   • gold   — gold (#ca9762) background, monochrome navy (#000435) logo
  *   • navy   — navy (#000435) background, monochrome gold (#ca9762) logo
@@ -18,15 +18,15 @@
  *   icons/favicon-48.png                (transparent)
  *   icons/icon-192.png                  (transparent)
  *   icons/icon-512.png                  (transparent)
- *   icons/apple-touch-icon.png          (180×180, white bg, original logo)
- *   icons/apple-touch-icon-gold.png     (180×180, gold bg, navy logo)
- *   icons/apple-touch-icon-navy.png     (180×180, navy bg, gold logo)
- *   icons/icon-192-tile-white.png       (white bg, original logo)
- *   icons/icon-192-tile-gold.png        (gold bg, navy logo)
- *   icons/icon-192-tile-navy.png        (navy bg, gold logo)
- *   icons/icon-512-tile-white.png       (white bg, original logo)
- *   icons/icon-512-tile-gold.png        (gold bg, navy logo)
- *   icons/icon-512-tile-navy.png        (navy bg, gold logo)
+ *   icons/apple-touch-icon.png          (180×180, white bg, rounded)
+ *   icons/apple-touch-icon-gold.png     (180×180, gold bg, rounded)
+ *   icons/apple-touch-icon-navy.png     (180×180, navy bg, rounded)
+ *   icons/icon-192-tile-white.png       (white bg, rounded)
+ *   icons/icon-192-tile-gold.png        (gold bg, rounded)
+ *   icons/icon-192-tile-navy.png        (navy bg, rounded)
+ *   icons/icon-512-tile-white.png       (white bg, rounded)
+ *   icons/icon-512-tile-gold.png        (gold bg, rounded)
+ *   icons/icon-512-tile-navy.png        (navy bg, rounded)
  */
 
 import { mkdir, readFile } from "node:fs/promises";
@@ -59,6 +59,17 @@ const svgText = await readFile(source, "utf8");
 /** Replace every `fill:` colour in the SVG (both CSS and inline) with one colour */
 function recolourSvg(svg, colour) {
   return svg.replace(/fill:\s*#[0-9a-fA-F]{3,8}/g, `fill:${colour}`);
+}
+
+/**
+ * Create an SVG mask with rounded corners.
+ * Uses ~22 % corner radius (iOS-style squircle feel).
+ */
+function roundedMask(size) {
+  const r = Math.round(size * 0.22);
+  return Buffer.from(
+    `<svg width="${size}" height="${size}"><rect x="0" y="0" width="${size}" height="${size}" rx="${r}" ry="${r}" fill="white"/></svg>`
+  );
 }
 
 // Define all sizes we need (transparent background)
@@ -104,7 +115,7 @@ for (const { name, size } of sizes) {
   console.log(`  ✓ icons/${name.padEnd(28)} (${size}×${size})`);
 }
 
-// ── Tile icons (3 sizes × 3 colour variants) ────────────────────────────
+// ── Tile icons (3 sizes × 3 colour variants, rounded corners) ────────────
 for (const { base, size, logoSize } of tileSizes) {
   for (const { suffix, bg, svgColour } of tileVariants) {
     const svgInput = svgColour ? Buffer.from(recolourSvg(svgText, svgColour)) : source;
@@ -118,15 +129,20 @@ for (const { base, size, logoSize } of tileSizes) {
     const fileName =
       base === "apple-touch-icon" && suffix === "white"
         ? `${base}.png`
-        : base === "apple-touch-icon"
-          ? `${base}-${suffix}.png`
-          : `${base}-${suffix}.png`;
+        : `${base}-${suffix}.png`;
 
     const out = join(outDir, fileName);
-    await sharp({
+
+    // Build the square tile then clip with a rounded-corner mask
+    const squareBuf = await sharp({
       create: { width: size, height: size, channels: 4, background: bg },
     })
       .composite([{ input: logoBuf, gravity: "centre" }])
+      .png()
+      .toBuffer();
+
+    await sharp(squareBuf)
+      .composite([{ input: roundedMask(size), blend: "dest-in" }])
       .png()
       .toFile(out);
 

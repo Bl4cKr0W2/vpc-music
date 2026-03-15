@@ -192,15 +192,28 @@ describe("generated outputs", () => {
         expect(meta.height).toBe(size);
       });
 
-      it(`has ${variant} background (top-left pixel)`, async () => {
+      it(`has ${variant} background (centre pixel check)`, async () => {
+        // Tiles have rounded corners so top-left is transparent;
+        // sample the top-centre (x=size/2, y=2) which is inside the rounded rect
+        const halfW = Math.floor(size / 2);
         const { data } = await sharp(iconPath)
-          .extract({ left: 0, top: 0, width: 1, height: 1 })
+          .extract({ left: halfW, top: 2, width: 1, height: 1 })
           .raw()
           .toBuffer({ resolveWithObject: true });
         // Allow slight variance from rounding
         expect(data[0]).toBeCloseTo(bgR, -1);
         expect(data[1]).toBeCloseTo(bgG, -1);
         expect(data[2]).toBeCloseTo(bgB, -1);
+      });
+
+      it("has rounded corners (top-left pixel is transparent)", async () => {
+        const { data, info } = await sharp(iconPath)
+          .extract({ left: 0, top: 0, width: 1, height: 1 })
+          .ensureAlpha()
+          .raw()
+          .toBuffer({ resolveWithObject: true });
+        // Rounded mask makes corner transparent (alpha ≈ 0)
+        expect(data[info.channels - 1]).toBeLessThan(30);
       });
     });
   }

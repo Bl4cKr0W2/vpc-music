@@ -26,6 +26,10 @@ vi.mock("sonner", () => ({
   toast: { success: vi.fn(), error: vi.fn() },
 }));
 
+vi.mock("@/contexts/ThemeContext", () => ({
+  useTheme: () => ({ resolvedTheme: "dark", toggleTheme: vi.fn() }),
+}));
+
 function renderRegister() {
   return render(
     <MemoryRouter>

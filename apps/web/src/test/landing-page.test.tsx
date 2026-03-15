@@ -9,6 +9,10 @@ vi.mock("@/contexts/AuthContext", () => ({
   useAuth: () => mockUseAuth(),
 }));
 
+vi.mock("@/contexts/ThemeContext", () => ({
+  useTheme: () => ({ resolvedTheme: "dark", toggleTheme: vi.fn() }),
+}));
+
 // Helper: render inside a router so <Link> / <Navigate> work
 function renderLanding(route = "/") {
   return render(
@@ -47,11 +51,12 @@ describe("LandingPage", () => {
       ).toBeInTheDocument();
     });
 
-    it("renders the logo and VPC Music brand in the top bar", () => {
+    it("renders the themed tile logo and VPC Music brand in the top bar", () => {
       renderLanding();
       const logo = screen.getByAltText("VPC Music");
       expect(logo).toBeInTheDocument();
-      expect(logo).toHaveAttribute("src", "/logo.png");
+      // In dark mode the navy tile is shown
+      expect(logo).toHaveAttribute("src", "/icons/icon-512-tile-navy.png");
       expect(screen.getByText("VPC Music")).toBeInTheDocument();
     });
 
