@@ -12,6 +12,8 @@
         "build:api": "pnpm --filter @vpc-music/api build",
         "build:web": "pnpm --filter @vpc-music/web build",
         "test": "pnpm --filter @vpc-music/web test",
+        "test:scripts": "vitest run --config vitest.config.mjs",
+        "test:all": "pnpm test && pnpm test:scripts",
         "test:watch": "pnpm --filter @vpc-music/web test:watch",
         "typecheck": "pnpm --filter @vpc-music/web typecheck",
         "lint": "pnpm --filter @vpc-music/web lint",
@@ -30,6 +32,7 @@
     "devDependencies": {
         "concurrently": "^8.2.2",
         "png-to-ico": "^3.0.1",
-        "sharp": "^0.34.5"
+        "sharp": "^0.34.5",
+        "vitest": "^3.0.0"
     }
 }

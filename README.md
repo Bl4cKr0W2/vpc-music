@@ -3,7 +3,7 @@
 A feature-rich song management and performance tool — blending the best of OnSong, our current site, and solutions to real pain points musicians face on stage and in rehearsal. **VPC Music uses [ChordPro](https://www.chordpro.org/) as its native song format**, with built-in converters to migrate existing `.chrd` and OnSong libraries.
 
 > **Monorepo**: Express API · PostgreSQL/Drizzle · React/Vite SPA · RBAC · ChordPro Engine  
-> **Stack**: pnpm workspaces · React 19 · Vite 7 · TypeScript · Tailwind CSS 4 · shadcn/ui · Express.js · Drizzle ORM · PostgreSQL 16 · Socket.io · Docker
+> **Stack**: pnpm workspaces · React 19 · Vite 7 · TypeScript · Tailwind CSS 4 · Radix UI (shadcn/ui pattern) · Express.js · Drizzle ORM · PostgreSQL 16 · Socket.io · Docker
 
 > **📂 Existing Assets:** We have a Dropbox full of music items (chord charts, lyrics, recordings, etc.) that can be referenced or imported as needed during development and migration.
 
@@ -635,7 +635,7 @@ An extensive look at existing tools in the chord chart, setlist, and worship mus
 
 ### Quick Comparison Matrix
 
-| Feature | OnSong | Planning Center | BandHelper | SongSelect | OpenSong | VPC Music (Planned) |
+| Feature | OnSong | Planning Center | BandHelper | SongSelect | OpenSong | VPC Music |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|
 | Web-based | - | ✅ | Partial | ✅ | - | ✅ |
 | iOS | ✅ | ✅ | ✅ | - | - | ✅ (responsive) |
@@ -643,21 +643,21 @@ An extensive look at existing tools in the chord chart, setlist, and worship mus
 | Desktop | - | ✅ | ✅ | ✅ | ✅ | ✅ |
 | ChordPro support | ✅ | - | ✅ | ✅ | - | ✅ (native) |
 | Transpose | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Auto-scroll | ✅ | - | ✅ | - | - | Planned |
+| Auto-scroll | ✅ | - | ✅ | - | - | ✅ |
 | Setlist builder | ✅ | ✅ | ✅ | - | ✅ | ✅ |
 | MIDI integration | ✅ | - | ✅ | - | - | - |
 | Foot pedal support | ✅ | ✅ | ✅ | - | - | Planned |
-| Multi-user roles | - | ✅ | ✅ | - | - | ✅ |
-| Live sync to band | - | ✅ | ✅ | - | - | Planned |
+| Multi-user roles | - | ✅ | ✅ | - | - | Partial (schema only, not enforced) |
+| Live sync to band | - | ✅ | ✅ | - | - | Partial (backend + hook, no UI) |
 | Song edit history | - | - | ✅ | - | - | Planned |
-| Nashville Numbers | - | - | - | - | - | ✅ |
-| Custom themes | ✅ | - | ✅ | - | - | ✅ |
+| Nashville Numbers | - | - | - | - | - | Planned (constants defined) |
+| Custom themes | ✅ | - | ✅ | - | - | Partial (dark/light/system only) |
 | Offline mode | ✅ | ✅ | ✅ | - | ✅ | Planned |
 | Free tier | - | ✅ | - | ✅ | ✅ | TBD |
 | Song database | - | Via integration | - | ✅ (230K+) | - | - |
-| Clone/variations | - | - | ✅ | - | - | ✅ |
-| Sticky notes | ✅ | - | ✅ | - | - | ✅ |
-| Export/print control | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Clone/variations | - | - | ✅ | - | - | Partial (schema + read/delete, no standalone CRUD/UI) |
+| Sticky notes | ✅ | - | ✅ | - | - | Planned |
+| Export/print control | ✅ | ✅ | ✅ | ✅ | ✅ | Partial (ChordPro export only, no print) |
 
 ---
 
@@ -681,42 +681,60 @@ vpc-music/
 │   │   │   │   ├── users.js
 │   │   │   │   ├── songs.js
 │   │   │   │   ├── setlists.js
+│   │   │   │   ├── passwordResetTokens.js
 │   │   │   │   └── index.js
 │   │   │   ├── features/       #   Domain-driven feature modules
-│   │   │   │   ├── songs/      #     CRUD + import/export routes
-│   │   │   │   ├── setlists/   #     Setlist management
-│   │   │   │   └── platform/   #     User settings, preferences
-│   │   │   ├── routes/         #   Top-level routes (auth)
+│   │   │   │   ├── songs/      #     CRUD + search + .chrd import + ChordPro export
+│   │   │   │   ├── setlists/   #     Setlist CRUD + song ordering/add/remove
+│   │   │   │   └── platform/   #     User settings, profile, password change
+│   │   │   ├── realtime/       #   Socket.io modules
+│   │   │   │   └── conductor.js #    Live setlist conductor mode
+│   │   │   ├── routes/         #   Top-level routes (auth: register, login, logout, me, forgot/reset password)
 │   │   │   ├── middlewares/    #   auth, errorHandler, httpLogger
 │   │   │   └── utils/          #   logger
-│   │   ├── drizzle/            #   Migrations output
+│   │   ├── src/test/           #   API tests (Vitest)
 │   │   ├── drizzle.config.js
+│   │   ├── vitest.config.js
 │   │   ├── Dockerfile
 │   │   └── package.json
 │   └── web/                    # @vpc-music/web — React 19 SPA
+│       ├── index.html          #   SPA entry point
+│       ├── public/
+│       │   ├── logo.svg         #   Vector logo source (treble clef + cross)
+│       │   ├── logo.png         #   Generated 512×512 raster logo
+│       │   ├── favicon.ico      #   Generated multi-size favicon
+│       │   ├── manifest.json    #   PWA manifest
+│       │   ├── fonts/           #   Vidaloka + Inter web fonts
+│       │   └── icons/           #   Generated PWA icons (16–512px)
 │       ├── src/
 │       │   ├── main.tsx        #   App entry
 │       │   ├── router.tsx      #   Route definitions (react-router 7)
 │       │   ├── components/
-│       │   │   ├── layout/     #     AppShell, nav, header
-│       │   │   ├── ui/         #     shadcn/ui primitives (to be added)
-│       │   │   └── shared/     #     Cross-feature components
+│       │   │   ├── layout/     #     AppShell (logo, auth-aware nav, logout)
+│       │   │   ├── songs/      #     ChordProRenderer, AutoScroll
+│       │   │   └── shared/     #     ProtectedRoute, RouteErrorPage
 │       │   ├── pages/
-│       │   │   ├── auth/       #     LoginPage
-│       │   │   ├── songs/      #     SongListPage, SongViewPage
-│       │   │   ├── setlists/   #     SetlistsPage
-│       │   │   ├── settings/   #     SettingsPage
-│       │   │   └── HomePage.tsx
+│       │   │   ├── auth/       #     LoginPage, RegisterPage, ForgotPasswordPage, ResetPasswordPage
+│       │   │   ├── songs/      #     SongListPage, SongViewPage, SongEditPage
+│       │   │   ├── setlists/   #     SetlistsPage, SetlistViewPage
+│       │   │   ├── settings/   #     SettingsPage (theme, profile, password)
+│       │   │   ├── LandingPage.tsx
+│       │   │   ├── DashboardPage.tsx
+│       │   │   └── NotFoundPage.tsx
 │       │   ├── contexts/       #   ThemeContext, AuthContext
-│       │   ├── lib/            #   api-client, utils (cn)
-│       │   └── styles/         #   Tailwind entry
+│       │   ├── hooks/          #   useConductor (Socket.io conductor mode)
+│       │   ├── types/          #   vpc-music-shared.d.ts
+│       │   ├── lib/            #   api-client (typed), utils (cn)
+│       │   ├── styles/         #   Tailwind entry
+│       │   └── test/           #   Web tests (Vitest + Testing Library)
 │       ├── vite.config.ts
+│       ├── vitest.config.ts
 │       ├── tsconfig.json
 │       ├── Dockerfile
 │       ├── nginx.conf          #   SPA serving config
 │       └── package.json
 ├── shared/                     # @vpc-music/shared — models, constants, utils
-│   ├── constants/              #   music.js (scales, keys, Nashville), roles.js
+│   ├── constants/              #   music.js (scales, keys, Nashville numbers), roles.js
 │   ├── models/                 #   song.js (Zod schemas)
 │   ├── utils/                  #   chordpro.js (parser), transpose.js
 │   ├── index.js
@@ -725,11 +743,13 @@ vpc-music/
 ├── scripts/                    # Build, deploy, sync, preflight tooling
 │   ├── build-router.mjs
 │   ├── deploy-router.ps1
+│   ├── deploy.ps1
+│   ├── deploy-staging.ps1
+│   ├── generate-icons.mjs
 │   ├── preflight.mjs
 │   ├── check-shared-drift.mjs
 │   ├── sync-shared.ps1
 │   └── db-push.mjs
-├── docs/                       # Project documentation
 ├── compose.yml                 # Dev: PostgreSQL only
 ├── compose.stg.yml             # Staging: full-stack Docker
 ├── pnpm-workspace.yaml
@@ -747,7 +767,7 @@ vpc-music/
 │  │   apps/web   │  │   apps/api   │  │  shared/   │ │
 │  │  React 19    │  │  Express.js  │  │  Zod +     │ │
 │  │  Vite 7      │→→│  Drizzle ORM │  │  ChordPro  │ │
-│  │  TW4+shadcn  │  │  PostgreSQL  │  │  Transpose │ │
+│  │  TW4+Radix   │  │  PostgreSQL  │  │  Transpose │ │
 │  │  TanStack Q  │  │  Socket.io   │  │  Constants │ │
 │  └──────┬───────┘  └──────┬───────┘  └───────────┘ │
 │         │    /api proxy    │             ↑           │
@@ -766,10 +786,10 @@ vpc-music/
 | Route Prefix | Module | Description |
 |---|---|---|
 | `/health` | inline | Health check |
-| `/api/auth` | `routes/auth.js` | Register, login, logout |
-| `/api/songs` | `features/songs/` | CRUD, import (.chrd, OnSong, PDF), export (ChordPro, OnSong, PDF) |
-| `/api/setlists` | `features/setlists/` | Setlist CRUD, song ordering |
-| `/api/platform` | `features/platform/` | User settings, preferences |
+| `/api/auth` | `routes/auth.js` | Register, login, logout, me, forgot-password, reset-password |
+| `/api/songs` | `features/songs/` | CRUD with search (`?q`, `?tag`, `?key`), .chrd import, ChordPro export |
+| `/api/setlists` | `features/setlists/` | Setlist CRUD, add/remove/reorder songs |
+| `/api/platform` | `features/platform/` | User settings, profile update, password change |
 
 ### Key Scripts
 
@@ -778,9 +798,13 @@ vpc-music/
 | `pnpm dev` | Start API + Web concurrently |
 | `pnpm build` | Build web (or `build:api`, `build:web`) |
 | `pnpm test` | Run web tests |
+| `pnpm lint` | Lint web app |
 | `pnpm typecheck` | TypeScript check |
 | `pnpm deploy` | Route deploy by environment |
 | `pnpm db:push` | Push Drizzle schema to DB |
+| `pnpm db:generate` | Generate Drizzle migrations |
+| `pnpm db:migrate` | Run Drizzle migrations |
+| `pnpm db:seed` | Seed database |
 | `pnpm db:studio` | Open Drizzle Studio |
 | `pnpm docker:up` | Start dev PostgreSQL |
 | `pnpm docker:stg` | Full staging stack |
@@ -793,15 +817,20 @@ vpc-music/
 
 > Tracked tasks for upcoming implementation work.
 
-- [ ] **Landing page** — public marketing/welcome page shown to unauthenticated visitors; logged-in users automatically redirect to the dashboard
-- [ ] **Auth-gated routing** — if authenticated → `/dashboard`; if not → `/` (landing page); protect app routes behind auth guard
-- [ ] **Dashboard page** — post-login home view (recent songs, upcoming setlists, quick actions)
-- [ ] **Registration flow** — sign-up page with email/password, linked from landing page
-- [ ] **Forgot password / reset** — password recovery flow
+- [x] **Landing page** — public marketing/welcome page shown to unauthenticated visitors; logged-in users automatically redirect to the dashboard
+- [x] **Auth-gated routing** — if authenticated → `/dashboard`; if not → `/` (landing page); protect app routes behind `ProtectedRoute` auth guard
+- [x] **Dashboard page** — post-login home view (recent songs, setlists overview, quick actions)
+- [x] **Registration flow** — sign-up page with email/password, linked from landing and login pages
+- [x] **Forgot password / reset** — full password recovery flow with crypto token generation, expiry, and reset form
 - [ ] **PDF import pipeline** — geometry-aware PDF → ChordPro conversion via PDF.co
-- [ ] **Real-time sync** — Socket.io live setlist conductor mode
+- [x] **Real-time sync (backend)** — Socket.io conductor mode with room-based setlist sync (`conductor:join`, `member:join`, `conductor:goto`, `conductor:scroll`, `leave`) and `useConductor` hook
+- [ ] **Real-time sync (UI)** — integrate `useConductor` hook into SetlistViewPage with conductor/member mode toggle
+- [ ] **Role enforcement** — add authorization middleware to enforce viewer/editor/admin permissions on API routes
+- [ ] **Nashville Number System** — render chords as Nashville numbers relative to song key (constants defined in `shared/`)
+- [ ] **Song variations** — CRUD API + UI for creating and managing song variations (schema exists)
+- [ ] **Print stylesheet** — `@media print` rules and print button for clean chord chart output
 - [ ] **Offline mode** — service worker + local cache for field use
-- [ ] **Auto-scroll** — configurable tempo-based lyrics scrolling during performance
+- [x] **Auto-scroll** — configurable speed-based lyrics scrolling during performance via `requestAnimationFrame`
 
 ---
 

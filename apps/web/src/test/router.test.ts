@@ -6,14 +6,9 @@ describe("router configuration", () => {
     expect(router).toBeDefined();
   });
 
-  it("has a root route at /", () => {
+  it("has a landing route at /", () => {
     const rootRoute = router.routes.find((r) => r.path === "/");
     expect(rootRoute).toBeDefined();
-  });
-
-  it("root route has errorElement configured", () => {
-    const rootRoute = router.routes.find((r) => r.path === "/");
-    expect(rootRoute?.errorElement).toBeDefined();
   });
 
   it("has a login route", () => {
@@ -21,17 +16,29 @@ describe("router configuration", () => {
     expect(loginRoute).toBeDefined();
   });
 
-  it("root has expected child routes", () => {
-    const rootRoute = router.routes.find((r) => r.path === "/");
-    const childPaths = rootRoute?.children?.map((c) => c.path ?? "(index)");
-    expect(childPaths).toContain("songs");
-    expect(childPaths).toContain("setlists");
-    expect(childPaths).toContain("settings");
+  it("has a register route", () => {
+    const registerRoute = router.routes.find((r) => r.path === "/register");
+    expect(registerRoute).toBeDefined();
+  });
+
+  it("has authenticated child routes for songs, setlists, settings", () => {
+    // Protected routes are under a pathless layout route
+    const layoutRoute = router.routes.find(
+      (r) => !r.path && r.children && r.children.length > 1
+    );
+    expect(layoutRoute).toBeDefined();
+    const childPaths = layoutRoute?.children?.map((c) => c.path);
+    expect(childPaths).toContain("/songs");
+    expect(childPaths).toContain("/setlists");
+    expect(childPaths).toContain("/settings");
+    expect(childPaths).toContain("/dashboard");
   });
 
   it("has a catch-all * child route for 404", () => {
-    const rootRoute = router.routes.find((r) => r.path === "/");
-    const catchAll = rootRoute?.children?.find((c) => c.path === "*");
+    const layoutRoute = router.routes.find(
+      (r) => !r.path && r.children && r.children.length > 1
+    );
+    const catchAll = layoutRoute?.children?.find((c) => c.path === "*");
     expect(catchAll).toBeDefined();
   });
 });

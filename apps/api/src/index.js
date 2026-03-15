@@ -3,6 +3,7 @@ import { createServer } from "http";
 import { Server } from "socket.io";
 import { app } from "./app.js";
 import { logger } from "./utils/logger.js";
+import { setupConductorMode } from "./realtime/conductor.js";
 
 const PORT = process.env.PORT || 3001;
 
@@ -18,10 +19,10 @@ const io = new Server(server, {
 
 io.on("connection", (socket) => {
   logger.info(`Socket connected: ${socket.id}`);
-  socket.on("disconnect", () => {
-    logger.info(`Socket disconnected: ${socket.id}`);
-  });
 });
+
+// Attach conductor mode (setlist live sync)
+setupConductorMode(io);
 
 server.listen(PORT, () => {
   logger.info(`VPC Music API running on port ${PORT}`);
