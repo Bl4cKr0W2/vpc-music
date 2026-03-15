@@ -69,9 +69,9 @@ describe("LoginPage", () => {
       expect(screen.getByText(/forgot password/i)).toHaveAttribute("href", "/forgot-password");
     });
 
-    it("has sign up link", () => {
+    it("does not render a sign-up link", () => {
       renderLogin();
-      expect(screen.getByRole("link", { name: /sign up/i })).toHaveAttribute("href", "/register");
+      expect(screen.queryByRole("link", { name: /sign up/i })).not.toBeInTheDocument();
     });
 
     it("calls login on form submit", async () => {

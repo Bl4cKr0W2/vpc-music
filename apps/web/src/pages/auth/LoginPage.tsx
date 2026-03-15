@@ -100,15 +100,6 @@ export function LoginPage() {
           </button>
         </form>
 
-        <p className="text-center text-sm text-[hsl(var(--muted-foreground))]">
-          Don't have an account?{" "}
-          <Link
-            to="/register"
-            className="text-[hsl(var(--secondary))] hover:underline font-medium"
-          >
-            Sign up
-          </Link>
-        </p>
       </div>
     </div>
   );

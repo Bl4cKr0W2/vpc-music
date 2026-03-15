@@ -12,7 +12,6 @@ import { SongEditPage } from "./pages/songs/SongEditPage";
 import { SetlistsPage } from "./pages/setlists/SetlistsPage";
 import { SetlistViewPage } from "./pages/setlists/SetlistViewPage";
 import { LoginPage } from "./pages/auth/LoginPage";
-import { RegisterPage } from "./pages/auth/RegisterPage";
 import { ForgotPasswordPage } from "./pages/auth/ForgotPasswordPage";
 import { ResetPasswordPage } from "./pages/auth/ResetPasswordPage";
 import { SettingsPage } from "./pages/settings/SettingsPage";
@@ -22,7 +21,6 @@ export const router = createBrowserRouter([
   // ── Public routes (no AppShell) ──────────────
   { path: "/", element: <LandingPage />, errorElement: <RouteErrorPage /> },
   { path: "/login", element: <LoginPage /> },
-  { path: "/register", element: <RegisterPage /> },
   { path: "/forgot-password", element: <ForgotPasswordPage /> },
   { path: "/reset-password", element: <ResetPasswordPage /> },
 

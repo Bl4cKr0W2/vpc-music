@@ -60,18 +60,17 @@ describe("LandingPage", () => {
       expect(screen.getByText("VPC Music")).toBeInTheDocument();
     });
 
-    it('renders a subtle "Sign in" link pointing to /login in the top nav', () => {
+    it('renders "Sign in" links pointing to /login', () => {
       renderLanding();
       const links = screen.getAllByRole("link", { name: /sign in/i });
       expect(links.length).toBeGreaterThanOrEqual(1);
       expect(links[0]).toHaveAttribute("href", "/login");
     });
 
-    it('renders a "Join" link pointing to /register in the top nav', () => {
+    it("does not render a Join or Register link", () => {
       renderLanding();
-      const link = screen.getByRole("link", { name: /^join$/i });
-      expect(link).toBeInTheDocument();
-      expect(link).toHaveAttribute("href", "/register");
+      expect(screen.queryByRole("link", { name: /^join$/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: /register/i })).not.toBeInTheDocument();
     });
 
     it("renders all six core feature cards", () => {
@@ -119,10 +118,10 @@ describe("LandingPage", () => {
       expect(screen.getByText(/Want to join the team/)).toBeInTheDocument();
     });
 
-    it("renders a CTA banner with join info", () => {
+    it("renders a CTA banner with invitation-only info", () => {
       renderLanding();
       expect(
-        screen.getByText(/reach out to the worship team lead/i),
+        screen.getByText(/invitation only/i),
       ).toBeInTheDocument();
     });
 
@@ -183,7 +182,6 @@ describe("LandingPage", () => {
       });
       renderLanding();
       expect(screen.queryByRole("link", { name: /sign in/i })).not.toBeInTheDocument();
-      expect(screen.queryByRole("link", { name: /^join$/i })).not.toBeInTheDocument();
     });
   });
 

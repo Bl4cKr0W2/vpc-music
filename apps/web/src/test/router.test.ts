@@ -16,9 +16,9 @@ describe("router configuration", () => {
     expect(loginRoute).toBeDefined();
   });
 
-  it("has a register route", () => {
+  it("does not have a public register route", () => {
     const registerRoute = router.routes.find((r) => r.path === "/register");
-    expect(registerRoute).toBeDefined();
+    expect(registerRoute).toBeUndefined();
   });
 
   it("has authenticated child routes for songs, setlists, settings", () => {

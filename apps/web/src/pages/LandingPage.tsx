@@ -111,15 +111,9 @@ export function LandingPage() {
         <div className="flex items-center gap-3">
           <Link
             to="/login"
-            className="text-sm text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] transition-colors"
-          >
-            Sign in
-          </Link>
-          <Link
-            to="/register"
             className="rounded-md border border-[hsl(var(--border))] px-4 py-1.5 text-sm font-medium text-[hsl(var(--foreground))] hover:bg-[hsl(var(--muted))] transition-colors"
           >
-            Join
+            Sign in
           </Link>
         </div>
       </nav>
@@ -219,14 +213,8 @@ export function LandingPage() {
             Want to join the team?
           </h2>
           <p className="text-[hsl(var(--muted-foreground))]">
-            If you&rsquo;d like access, reach out to the worship team lead or create an account below.
+            Access is by invitation only. Reach out to the worship team lead to get added.
           </p>
-          <Link
-            to="/register"
-            className="inline-block rounded-md bg-[hsl(var(--secondary))] px-8 py-3 text-sm font-medium text-[hsl(var(--secondary-foreground))] hover:opacity-90 transition-opacity"
-          >
-            Request access
-          </Link>
         </div>
       </section>
 
