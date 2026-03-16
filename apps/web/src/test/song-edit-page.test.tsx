@@ -8,6 +8,7 @@ import { SongEditPage } from "@/pages/songs/SongEditPage";
 const mockGet = vi.fn();
 const mockCreate = vi.fn();
 const mockUpdate = vi.fn();
+const mockVariationUpdate = vi.fn();
 const mockNavigate = vi.fn();
 
 vi.mock("@/lib/api-client", () => ({
@@ -15,8 +16,12 @@ vi.mock("@/lib/api-client", () => ({
     get: (...args: any[]) => mockGet(...args),
     create: (...args: any[]) => mockCreate(...args),
     update: (...args: any[]) => mockUpdate(...args),
+    getTags: () => Promise.resolve({ tags: ["worship", "hymn", "contemporary"] }),
     importChrd: vi.fn(),
     importPdf: vi.fn(),
+  },
+  variationsApi: {
+    update: (...args: any[]) => mockVariationUpdate(...args),
   },
 }));
 
@@ -34,6 +39,8 @@ vi.mock("sonner", () => ({
 
 vi.mock("@vpc-music/shared", () => ({
   ALL_KEYS: ["C", "D", "E", "F", "G", "A", "B"],
+  CHORD_REGEX: /^[A-G][b#]?(?:m|min|maj|dim|aug|sus[24]?|add)?[0-9]?(?:\/[A-G][b#]?)?$/,
+  PRESET_TAGS: ["worship", "praise", "hymn", "classic", "contemporary"],
 }));
 
 function renderNewSong() {
@@ -49,6 +56,16 @@ function renderNewSong() {
 function renderEditSong(id = "song-1") {
   return render(
     <MemoryRouter initialEntries={[`/songs/${id}/edit`]}>
+      <Routes>
+        <Route path="/songs/:id/edit" element={<SongEditPage />} />
+      </Routes>
+    </MemoryRouter>,
+  );
+}
+
+function renderEditSongVariation(id = "song-1", variationId = "v1") {
+  return render(
+    <MemoryRouter initialEntries={[`/songs/${id}/edit?variation=${variationId}`]}>
       <Routes>
         <Route path="/songs/:id/edit" element={<SongEditPage />} />
       </Routes>
@@ -75,7 +92,7 @@ describe("SongEditPage", () => {
       expect(screen.getByText("Select key")).toBeInTheDocument();
       expect(screen.getByPlaceholderText("120")).toBeInTheDocument();
       expect(screen.getByPlaceholderText("Artist or composer")).toBeInTheDocument();
-      expect(screen.getByPlaceholderText(/worship, hymn/)).toBeInTheDocument();
+      expect(screen.getByText("Tags")).toBeInTheDocument();
     });
 
     it("renders Create Song button", () => {
@@ -125,9 +142,16 @@ describe("SongEditPage", () => {
       content: "[G]Amazing",
       isDraft: false,
     };
+    const existingVariation = {
+      id: "v1",
+      songId: "song-1",
+      name: "Acoustic",
+      key: "C",
+      content: "[C]Amazing",
+    };
 
     it("renders Edit Song heading", async () => {
-      mockGet.mockResolvedValue({ song: existingSong });
+      mockGet.mockResolvedValue({ song: existingSong, variations: [] });
       renderEditSong();
       await waitFor(() => {
         expect(screen.getByText("Edit Song")).toBeInTheDocument();
@@ -135,20 +159,60 @@ describe("SongEditPage", () => {
     });
 
     it("populates form with existing data", async () => {
-      mockGet.mockResolvedValue({ song: existingSong });
+      mockGet.mockResolvedValue({ song: existingSong, variations: [] });
       renderEditSong();
       await waitFor(() => {
         expect(screen.getByDisplayValue("Amazing Grace")).toBeInTheDocument();
         expect(screen.getByDisplayValue("Newton")).toBeInTheDocument();
-        expect(screen.getByDisplayValue("hymn")).toBeInTheDocument();
+        // Tags render as pills in TagInput, not plain input values
+        expect(screen.getByText("hymn")).toBeInTheDocument();
       });
     });
 
     it("renders Update Song button", async () => {
-      mockGet.mockResolvedValue({ song: existingSong });
+      mockGet.mockResolvedValue({ song: existingSong, variations: [] });
       renderEditSong();
       await waitFor(() => {
         expect(screen.getByRole("button", { name: /update song/i })).toBeInTheDocument();
+      });
+    });
+
+    it("shows the selected variation clearly when editing a variation", async () => {
+      mockGet.mockResolvedValue({ song: existingSong, variations: [existingVariation] });
+      renderEditSongVariation();
+
+      await waitFor(() => {
+        expect(screen.getByText("Variation: Acoustic")).toBeInTheDocument();
+        expect(screen.getByDisplayValue("Acoustic (C)")).toBeInTheDocument();
+        expect(screen.getByTestId("chordpro-editor")).toHaveValue("[C]Amazing");
+      });
+    });
+
+    it("saves variation content separately from the base song", async () => {
+      mockGet.mockResolvedValue({ song: existingSong, variations: [existingVariation] });
+      mockUpdate.mockResolvedValue({ song: existingSong });
+      mockVariationUpdate.mockResolvedValue({ variation: existingVariation });
+      renderEditSongVariation();
+      const user = userEvent.setup();
+
+      const editor = await screen.findByTestId("chordpro-editor");
+      await user.clear(editor);
+      await user.type(editor, "[C]Grace");
+      await user.click(screen.getByRole("button", { name: /update song/i }));
+
+      await waitFor(() => {
+        expect(mockUpdate).toHaveBeenCalledWith("song-1", {
+          title: "Amazing Grace",
+          tempo: 72,
+          artist: "Newton",
+          tags: "hymn",
+          isDraft: false,
+        });
+        expect(mockVariationUpdate).toHaveBeenCalledWith("song-1", "v1", {
+          content: expect.stringContaining("Grace"),
+          key: "C",
+        });
+        expect(mockNavigate).toHaveBeenCalledWith("/songs/song-1?variation=v1");
       });
     });
   });

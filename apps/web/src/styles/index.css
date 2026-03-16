@@ -208,6 +208,17 @@
     font-size: 12pt;
   }
 
+  /* Strip layout padding so the song fills the page */
+  main {
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  /* Collapse decorative spacing between sections */
+  .space-y-4 > :not(.print-meta):not(.print-sheet) {
+    margin-top: 0 !important;
+  }
+
   /* Remove container scroll constraints so all content prints */
   .print-sheet {
     max-height: none !important;

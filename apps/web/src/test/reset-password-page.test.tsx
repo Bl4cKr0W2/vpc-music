@@ -37,6 +37,14 @@ function renderPage(token?: string) {
   );
 }
 
+function renderInvitePage(token = "invite-token") {
+  return render(
+    <MemoryRouter initialEntries={[`/reset-password?token=${token}&invite=1`]}>
+      <ResetPasswordPage />
+    </MemoryRouter>,
+  );
+}
+
 describe("ResetPasswordPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -69,6 +77,13 @@ describe("ResetPasswordPage", () => {
         expect(mockResetPassword).toHaveBeenCalledWith("tok_valid", "newpass123");
         expect(mockNavigate).toHaveBeenCalledWith("/login");
       });
+    });
+
+    it("shows invite setup copy when opened from an invite", () => {
+      renderInvitePage();
+      expect(screen.getByText("Set Your Password")).toBeInTheDocument();
+      expect(screen.getByText(/finish accepting your invitation/i)).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /set password/i })).toBeInTheDocument();
     });
   });
 

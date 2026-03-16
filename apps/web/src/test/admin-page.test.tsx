@@ -23,7 +23,7 @@ vi.mock("sonner", () => ({
 }));
 
 // Auth mock — defaults to admin
-let mockAuthValue = {
+let mockAuthValue: any = {
   user: { id: "u1", email: "admin@test.com", displayName: "Admin", role: "owner" as const },
   isAuthenticated: true,
   isLoading: false,
@@ -86,7 +86,7 @@ describe("AdminPage", () => {
     mockListUsers.mockResolvedValue({ users: membersList });
     mockInvite.mockResolvedValue({
       user: { id: "u4", email: "new@test.com", orgRole: "musician" },
-      inviteUrl: "http://localhost/login?email=new@test.com",
+      inviteUrl: "http://localhost/reset-password?token=invite-token&invite=1",
       message: "Invite created for new@test.com",
     });
     mockUpdateRole.mockResolvedValue({ message: "Role updated" });
@@ -121,9 +121,10 @@ describe("AdminPage", () => {
     it("renders invite section", async () => {
       renderPage();
       expect(screen.getByText("Invite Member")).toBeInTheDocument();
+      expect(screen.getByText(/required fields are marked/i)).toBeInTheDocument();
       expect(screen.getByPlaceholderText("Email address *")).toBeInTheDocument();
-      expect(screen.getByPlaceholderText("Display name")).toBeInTheDocument();
-      expect(screen.getByText("Invite")).toBeInTheDocument();
+      expect(screen.getByPlaceholderText("Display name *")).toBeInTheDocument();
+      expect(screen.getByText("Send Email Invite")).toBeInTheDocument();
     });
 
     it("renders role selector in invite form", async () => {
@@ -231,7 +232,7 @@ describe("AdminPage", () => {
       fireEvent.change(screen.getByPlaceholderText("Email address *"), {
         target: { value: "new@test.com" },
       });
-      fireEvent.change(screen.getByPlaceholderText("Display name"), {
+      fireEvent.change(screen.getByPlaceholderText("Display name *"), {
         target: { value: "New Guy" },
       });
       fireEvent.submit(screen.getByPlaceholderText("Email address *").closest("form")!);
@@ -252,10 +253,13 @@ describe("AdminPage", () => {
       fireEvent.change(screen.getByPlaceholderText("Email address *"), {
         target: { value: "new@test.com" },
       });
+      fireEvent.change(screen.getByPlaceholderText("Display name *"), {
+        target: { value: "New Guy" },
+      });
       fireEvent.submit(screen.getByPlaceholderText("Email address *").closest("form")!);
 
       await waitFor(() => {
-        expect(screen.getByText(/login\?email=new@test\.com/)).toBeInTheDocument();
+        expect(screen.getByText(/reset-password\?token=invite-token&invite=1/)).toBeInTheDocument();
       });
     });
 
@@ -265,6 +269,9 @@ describe("AdminPage", () => {
 
       fireEvent.change(screen.getByPlaceholderText("Email address *"), {
         target: { value: "new@test.com" },
+      });
+      fireEvent.change(screen.getByPlaceholderText("Display name *"), {
+        target: { value: "New Guy" },
       });
       fireEvent.submit(screen.getByPlaceholderText("Email address *").closest("form")!);
 
@@ -330,6 +337,9 @@ describe("AdminPage", () => {
 
       fireEvent.change(screen.getByPlaceholderText("Email address *"), {
         target: { value: "existing@test.com" },
+      });
+      fireEvent.change(screen.getByPlaceholderText("Display name *"), {
+        target: { value: "Existing Member" },
       });
       fireEvent.submit(screen.getByPlaceholderText("Email address *").closest("form")!);
 

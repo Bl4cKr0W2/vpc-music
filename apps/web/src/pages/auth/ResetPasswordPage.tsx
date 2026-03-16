@@ -9,6 +9,7 @@ export function ResetPasswordPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const token = searchParams.get("token") || "";
+  const isInviteSetup = searchParams.get("invite") === "1";
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -32,7 +33,7 @@ export function ResetPasswordPage() {
     setLoading(true);
     try {
       await authApi.resetPassword(token, password);
-      toast.success("Password reset successfully!");
+      toast.success(isInviteSetup ? "Password set successfully!" : "Password reset successfully!");
       navigate("/login");
     } catch (err: any) {
       toast.error(err.message || "Reset failed");
@@ -70,10 +71,12 @@ export function ResetPasswordPage() {
         <div className="flex flex-col items-center gap-3">
           <ThemedLogo className="h-16 w-16 rounded-lg" />
           <h1 className="text-2xl font-brand text-[hsl(var(--secondary))]">
-            Reset Password
+            {isInviteSetup ? "Set Your Password" : "Reset Password"}
           </h1>
           <p className="text-sm text-[hsl(var(--muted-foreground))]">
-            Enter your new password below.
+            {isInviteSetup
+              ? "Create your password below to finish accepting your invitation."
+              : "Enter your new password below."}
           </p>
         </div>
 
@@ -115,7 +118,7 @@ export function ResetPasswordPage() {
             disabled={loading}
             className="w-full rounded-md bg-[hsl(var(--secondary))] px-4 py-2 text-sm font-medium text-[hsl(var(--secondary-foreground))] hover:opacity-90 transition-opacity disabled:opacity-50"
           >
-            {loading ? "Resetting..." : "Reset password"}
+            {loading ? (isInviteSetup ? "Setting password..." : "Resetting...") : (isInviteSetup ? "Set password" : "Reset password")}
           </button>
         </form>
       </div>

@@ -85,11 +85,15 @@ export function AdminPage() {
       toast.error("Email is required");
       return;
     }
+    if (!invName.trim()) {
+      toast.error("Display name is required");
+      return;
+    }
     setInviting(true);
     try {
       const res = await adminApi.invite({
         email: invEmail.trim(),
-        displayName: invName.trim() || undefined,
+        displayName: invName.trim(),
         role: invRole,
       });
       toast.success(res.message);
@@ -160,12 +164,16 @@ export function AdminPage() {
           <UserPlus className="h-5 w-5 text-[hsl(var(--secondary))]" />
           Invite Member
         </h2>
+        <p className="text-sm text-[hsl(var(--muted-foreground))]">
+          Required fields are marked with <span className="font-medium text-[hsl(var(--destructive))]">*</span>. The invite sends an email directly to the team member.
+        </p>
         <form onSubmit={handleInvite} className="flex flex-wrap gap-3">
           <input
             type="email"
             value={invEmail}
             onChange={(e) => setInvEmail(e.target.value)}
             placeholder="Email address *"
+            aria-label="Email address (required)"
             required
             className="flex-1 min-w-50 rounded-md border border-[hsl(var(--input))] bg-[hsl(var(--background))] px-3 py-2 text-sm text-[hsl(var(--foreground))] placeholder:text-[hsl(var(--muted-foreground))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))]"
           />
@@ -173,7 +181,9 @@ export function AdminPage() {
             type="text"
             value={invName}
             onChange={(e) => setInvName(e.target.value)}
-            placeholder="Display name"
+            placeholder="Display name *"
+            aria-label="Display name (required)"
+            required
             className="w-40 rounded-md border border-[hsl(var(--input))] bg-[hsl(var(--background))] px-3 py-2 text-sm text-[hsl(var(--foreground))] placeholder:text-[hsl(var(--muted-foreground))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))]"
           />
           <select
@@ -197,7 +207,7 @@ export function AdminPage() {
             ) : (
               <UserPlus className="h-4 w-4" />
             )}
-            Invite
+            Send Email Invite
           </button>
         </form>
 

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { useParams, Link, useNavigate } from "react-router-dom";
+import { useParams, Link, useNavigate, useSearchParams } from "react-router-dom";
 import { songsApi, shareApi, songUsageApi, songHistoryApi, variationsApi, stickyNotesApi, type Song, type SongUsage, type SongVariation, type SongEdit, type StickyNote } from "@/lib/api-client";
 import { ChordProRenderer, AutoScroll, type ChordProRendererHandle } from "@/components/songs/ChordProRenderer";
 import { ShareManageDialog } from "@/components/songs/ShareManageDialog";
@@ -11,6 +11,7 @@ import { ArrowLeft, Edit, Trash2, Download, Eye, EyeOff, Share2, Check, Copy, Ca
 export function SongViewPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [song, setSong] = useState<Song | null>(null);
   const [loading, setLoading] = useState(true);
   const [showChords, setShowChords] = useState(true);
@@ -48,6 +49,18 @@ export function SongViewPage() {
   const [varKey, setVarKey] = useState("");
   const [varContent, setVarContent] = useState("");
   const [savingVariation, setSavingVariation] = useState(false);
+  const requestedVariationId = searchParams.get("variation");
+
+  const selectVariation = (variationId: string | null) => {
+    setActiveVariationId(variationId);
+    const next = new URLSearchParams(searchParams);
+    if (variationId) {
+      next.set("variation", variationId);
+    } else {
+      next.delete("variation");
+    }
+    setSearchParams(next, { replace: true });
+  };
 
   // Keyboard shortcuts & foot pedal support (PageDown/Up, Arrow keys, etc.)
   const isModalOpen = showUsageForm || showShareManage || showVariationForm;
@@ -70,6 +83,14 @@ export function SongViewPage() {
       .catch(() => toast.error("Song not found"))
       .finally(() => setLoading(false));
   }, [id]);
+
+  useEffect(() => {
+    if (requestedVariationId && variations.some((variation) => variation.id === requestedVariationId)) {
+      setActiveVariationId(requestedVariationId);
+    } else {
+      setActiveVariationId(null);
+    }
+  }, [requestedVariationId, variations]);
 
   // Load usage history
   useEffect(() => {
@@ -291,7 +312,7 @@ export function SongViewPage() {
           key: varKey || undefined,
         });
         setVariations((prev) => [...prev, res.variation]);
-        setActiveVariationId(res.variation.id);
+        selectVariation(res.variation.id);
         toast.success("Variation created");
       }
       setShowVariationForm(false);
@@ -307,7 +328,7 @@ export function SongViewPage() {
     try {
       await variationsApi.delete(id, varId);
       setVariations((prev) => prev.filter((v) => v.id !== varId));
-      if (activeVariationId === varId) setActiveVariationId(null);
+      if (activeVariationId === varId) selectVariation(null);
       toast.success("Variation deleted");
     } catch (err: any) {
       toast.error(err.message || "Failed to delete variation");
@@ -402,7 +423,7 @@ export function SongViewPage() {
           <Settings2 className="h-3.5 w-3.5" /> Links
         </button>
         <Link
-          to={`/songs/${id}/edit`}
+          to={activeVariationId ? `/songs/${id}/edit?variation=${activeVariationId}` : `/songs/${id}/edit`}
           className="inline-flex items-center gap-1.5 rounded-md border border-[hsl(var(--border))] px-3 py-1.5 text-xs hover:bg-[hsl(var(--muted))] transition-colors"
         >
           <Edit className="h-3.5 w-3.5" /> Edit
@@ -482,7 +503,7 @@ export function SongViewPage() {
         <div className="flex flex-wrap items-center gap-2 print-hidden" data-testid="variation-tabs">
           <Layers className="h-4 w-4 text-[hsl(var(--muted-foreground))]" />
           <button
-            onClick={() => setActiveVariationId(null)}
+            onClick={() => selectVariation(null)}
             className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
               !activeVariationId
                 ? "bg-[hsl(var(--secondary))] text-[hsl(var(--secondary-foreground))]"
@@ -494,7 +515,7 @@ export function SongViewPage() {
           {variations.map((v) => (
             <div key={v.id} className="group relative flex items-center">
               <button
-                onClick={() => setActiveVariationId(v.id)}
+                onClick={() => selectVariation(v.id)}
                 className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
                   activeVariationId === v.id
                     ? "bg-[hsl(var(--secondary))] text-[hsl(var(--secondary-foreground))]"

@@ -6,7 +6,7 @@ import { Router } from "express";
 import crypto from "crypto";
 import { eq, and } from "drizzle-orm";
 import { db } from "../../db.js";
-import { users, organizationMembers } from "../../schema/index.js";
+import { users, organizationMembers, passwordResetTokens } from "../../schema/index.js";
 import { env } from "../../config/env.js";
 import { auth } from "../../middlewares/auth.js";
 import { orgContext, requireOrg, requireOrgRole } from "../../middlewares/orgContext.js";
@@ -59,11 +59,12 @@ adminRoutes.post(
   asyncHandler(async (req, res) => {
     const { email, displayName, role } = req.body;
 
-    if (!email) {
-      throw createError(400, "Email is required");
+    if (!email || !displayName?.trim()) {
+      throw createError(400, "Email and display name are required");
     }
 
     const normalizedEmail = email.toLowerCase().trim();
+    const normalizedDisplayName = displayName.trim();
 
     // Check for existing user
     let [user] = await db
@@ -94,7 +95,7 @@ adminRoutes.post(
         .insert(users)
         .values({
           email: normalizedEmail,
-          displayName: displayName || normalizedEmail.split("@")[0],
+          displayName: normalizedDisplayName,
           role: "member",
           passwordHash: null,
         })
@@ -112,14 +113,32 @@ adminRoutes.post(
       role: assignedRole,
     });
 
-    // Build an invite link that pre-fills the email on the login page
-    const inviteUrl = `${env.FRONTEND_URL}/login?email=${encodeURIComponent(normalizedEmail)}`;
+    const needsPasswordSetup = !user.passwordHash;
+    let inviteUrl = `${env.FRONTEND_URL}/login?email=${encodeURIComponent(normalizedEmail)}`;
+
+    if (needsPasswordSetup) {
+      const token = crypto.randomBytes(32).toString("hex");
+      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+
+      await db.insert(passwordResetTokens).values({
+        userId: user.id,
+        token,
+        expiresAt,
+      });
+
+      inviteUrl = `${env.FRONTEND_URL}/reset-password?token=${token}&invite=1`;
+    }
 
     // Send invite email (falls back to console log in dev)
     await sendEmail({
       to: normalizedEmail,
       subject: "You're invited to VPC Music",
-      html: buildInviteEmail({ inviteUrl, displayName }),
+      html: buildInviteEmail({
+        inviteUrl,
+        displayName: normalizedDisplayName,
+        orgName: req.org.name,
+        ctaLabel: needsPasswordSetup ? "Set Password" : "Accept Invitation",
+      }),
     });
     logger.info(`Invite sent to ${normalizedEmail}`);
 

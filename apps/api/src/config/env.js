@@ -10,11 +10,10 @@ export const env = {
   FRONTEND_URL: process.env.FRONTEND_URL || "http://localhost:5176",
   PDF_CO_API_KEY: process.env.PDF_CO_API_KEY || "",
 
-  // Mailgun SMTP
-  MAILGUN_SMTP_HOST: process.env.MAILGUN_SMTP_HOST || "smtp.mailgun.org",
-  MAILGUN_SMTP_PORT: parseInt(process.env.MAILGUN_SMTP_PORT || "587", 10),
-  MAILGUN_SMTP_USER: process.env.MAILGUN_SMTP_USER || "",
-  MAILGUN_SMTP_PASS: process.env.MAILGUN_SMTP_PASS || "",
+  // Mailgun HTTP API
+  MAILGUN_DOMAIN: process.env.MAILGUN_DOMAIN || "",
+  MAILGUN_API_KEY: process.env.MAILGUN_API_KEY || process.env.MAILGUN_SMTP_PASS || "",
+  MAILGUN_API_BASE_URL: process.env.MAILGUN_API_BASE_URL || "https://api.mailgun.net",
   EMAIL_FROM: process.env.EMAIL_FROM || "VPC Music <noreply@vpcmusic.com>",
 
   // OAuth2 — Google

@@ -1,14 +1,18 @@
-import { useState, useEffect } from "react";
-import { useParams, useNavigate, Link } from "react-router-dom";
-import { songsApi, type Song } from "@/lib/api-client";
+import { useState, useEffect, useMemo } from "react";
+import { useParams, useNavigate, Link, useSearchParams } from "react-router-dom";
+import { songsApi, variationsApi, type Song, type SongVariation } from "@/lib/api-client";
 import { ALL_KEYS } from "@vpc-music/shared";
 import { toast } from "sonner";
-import { ArrowLeft, Save, Upload } from "lucide-react";
+import { ArrowLeft, Save, Upload, Layers } from "lucide-react";
+import { ChordProEditor } from "@/components/songs/ChordProEditor";
+import { TagInput } from "@/components/songs/TagInput";
 
 export function SongEditPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const isNew = !id;
+  const requestedVariationId = searchParams.get("variation");
 
   const [title, setTitle] = useState("");
   const [key, setKey] = useState("");
@@ -19,6 +23,18 @@ export function SongEditPage() {
   const [isDraft, setIsDraft] = useState(false);
   const [loading, setLoading] = useState(!isNew);
   const [saving, setSaving] = useState(false);
+  const [songRecord, setSongRecord] = useState<Song | null>(null);
+  const [variations, setVariations] = useState<SongVariation[]>([]);
+  const [editingVariationId, setEditingVariationId] = useState<string | null>(null);
+
+  const metadata = useMemo(
+    () => ({ title, artist, key, tempo }),
+    [title, artist, key, tempo],
+  );
+  const currentVariation = useMemo(
+    () => variations.find((variation) => variation.id === editingVariationId) ?? null,
+    [variations, editingVariationId],
+  );
 
   // Load existing song
   useEffect(() => {
@@ -27,17 +43,47 @@ export function SongEditPage() {
       .get(id)
       .then((res) => {
         const s = res.song;
+        setSongRecord(s);
+        setVariations(res.variations || []);
         setTitle(s.title);
-        setKey(s.key || "");
         setTempo(s.tempo ? String(s.tempo) : "");
         setArtist(s.artist || "");
         setTags(s.tags || "");
-        setContent(s.content);
         setIsDraft(!!s.isDraft);
       })
       .catch(() => toast.error("Song not found"))
       .finally(() => setLoading(false));
   }, [id]);
+
+  useEffect(() => {
+    if (!songRecord) return;
+    const selectedVariation = requestedVariationId
+      ? variations.find((variation) => variation.id === requestedVariationId) ?? null
+      : null;
+
+    setEditingVariationId(selectedVariation?.id ?? null);
+    setKey(selectedVariation?.key || songRecord.key || "");
+    setContent(selectedVariation?.content || songRecord.content);
+  }, [requestedVariationId, variations, songRecord]);
+
+  const handleEditTargetChange = (variationId: string) => {
+    const nextVariationId = variationId || null;
+    const nextVariation = nextVariationId
+      ? variations.find((variation) => variation.id === nextVariationId) ?? null
+      : null;
+
+    setEditingVariationId(nextVariation?.id ?? null);
+    setKey(nextVariation?.key || songRecord?.key || "");
+    setContent(nextVariation?.content || songRecord?.content || "");
+
+    const nextSearchParams = new URLSearchParams(searchParams);
+    if (nextVariation?.id) {
+      nextSearchParams.set("variation", nextVariation.id);
+    } else {
+      nextSearchParams.delete("variation");
+    }
+    setSearchParams(nextSearchParams, { replace: true });
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -47,21 +93,39 @@ export function SongEditPage() {
     }
     setSaving(true);
     try {
-      const data: Partial<Song> = {
+      const sharedSongData: Partial<Song> = {
         title: title.trim(),
-        key: key || undefined,
         tempo: tempo ? Number(tempo) : undefined,
         artist: artist.trim() || undefined,
         tags: tags.trim() || undefined,
-        content,
         isDraft,
       };
 
       if (isNew) {
+        const data: Partial<Song> = {
+          ...sharedSongData,
+          key: key || undefined,
+          content,
+        };
         const res = await songsApi.create(data);
         toast.success("Song created!");
         navigate(`/songs/${res.song.id}`);
+      } else if (currentVariation) {
+        await Promise.all([
+          songsApi.update(id!, sharedSongData),
+          variationsApi.update(id!, currentVariation.id, {
+            content,
+            key: key || undefined,
+          }),
+        ]);
+        toast.success(`Updated variation: ${currentVariation.name}`);
+        navigate(`/songs/${id}?variation=${currentVariation.id}`);
       } else {
+        const data: Partial<Song> = {
+          ...sharedSongData,
+          key: key || undefined,
+          content,
+        };
         await songsApi.update(id!, data);
         toast.success("Song updated!");
         navigate(`/songs/${id}`);
@@ -129,7 +193,7 @@ export function SongEditPage() {
       {/* Header */}
       <div className="flex items-center gap-3">
         <Link
-          to={isNew ? "/songs" : `/songs/${id}`}
+          to={isNew ? "/songs" : currentVariation ? `/songs/${id}?variation=${currentVariation.id}` : `/songs/${id}`}
           className="inline-flex items-center gap-1 text-sm text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]"
         >
           <ArrowLeft className="h-4 w-4" /> {isNew ? "Songs" : "Back"}
@@ -140,6 +204,51 @@ export function SongEditPage() {
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
+        {!isNew && variations.length > 0 && (
+          <div className="space-y-3 rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--muted))]/40 p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="space-y-1">
+                <div className="inline-flex items-center gap-2 text-sm font-medium text-[hsl(var(--foreground))]">
+                  <Layers className="h-4 w-4" /> Editing target
+                </div>
+                <p className="text-xs text-[hsl(var(--muted-foreground))]">
+                  Choose whether you are editing the original song or a specific variation.
+                </p>
+              </div>
+              <span className="inline-flex items-center rounded-full border border-[hsl(var(--border))] bg-[hsl(var(--background))] px-3 py-1 text-xs font-medium text-[hsl(var(--foreground))]">
+                {currentVariation ? `Variation: ${currentVariation.name}` : "Original song"}
+              </span>
+            </div>
+
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <label htmlFor="edit-target" className="text-sm font-medium text-[hsl(var(--foreground))]">
+                Working on
+              </label>
+              <select
+                id="edit-target"
+                value={editingVariationId || ""}
+                onChange={(e) => handleEditTargetChange(e.target.value)}
+                className="w-full rounded-md border border-[hsl(var(--input))] bg-[hsl(var(--background))] px-3 py-2 text-sm text-[hsl(var(--foreground))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))] sm:max-w-sm"
+              >
+                <option value="">Original song</option>
+                {variations.map((variation) => (
+                  <option key={variation.id} value={variation.id}>
+                    {variation.name}
+                    {variation.key ? ` (${variation.key})` : ""}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {currentVariation && (
+              <p className="text-xs text-[hsl(var(--muted-foreground))]">
+                You are editing the content and key for <span className="font-medium text-[hsl(var(--foreground))]">{currentVariation.name}</span>.
+                Title, artist, tempo, tags, and draft status still belong to the main song.
+              </p>
+            )}
+          </div>
+        )}
+
         {/* Metadata grid */}
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2 sm:col-span-2">
@@ -194,15 +303,8 @@ export function SongEditPage() {
             />
           </div>
 
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-[hsl(var(--foreground))]">Tags</label>
-            <input
-              type="text"
-              value={tags}
-              onChange={(e) => setTags(e.target.value)}
-              className="w-full rounded-md border border-[hsl(var(--input))] bg-[hsl(var(--background))] px-3 py-2 text-sm text-[hsl(var(--foreground))] placeholder:text-[hsl(var(--muted-foreground))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))]"
-              placeholder="worship, hymn, contemporary"
-            />
+          <div className="md:col-span-2">
+            <TagInput value={tags} onChange={setTags} />
           </div>
         </div>
 
@@ -224,23 +326,11 @@ export function SongEditPage() {
         </div>
 
         {/* ChordPro editor */}
-        <div className="space-y-2">
-          <label className="text-sm font-medium text-[hsl(var(--foreground))]">
-            Content (ChordPro format)
-          </label>
-          <textarea
-            value={content}
-            onChange={(e) => setContent(e.target.value)}
-            rows={20}
-            className="w-full rounded-md border border-[hsl(var(--input))] bg-[hsl(var(--background))] px-3 py-2 font-mono text-sm text-[hsl(var(--foreground))] placeholder:text-[hsl(var(--muted-foreground))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))]"
-            placeholder={`{title: Amazing Grace}
-{key: G}
-
-{comment: Verse 1}
-[G]Amazing [G/B]grace, how [C]sweet the [G]sound
-That [G]saved a [Em]wretch like [D]me`}
-          />
-        </div>
+        <ChordProEditor
+          value={content}
+          onChange={setContent}
+          metadata={metadata}
+        />
 
         {/* Draft toggle */}
         <label className="flex items-center gap-2 text-sm text-[hsl(var(--foreground))]">
@@ -264,7 +354,7 @@ That [G]saved a [Em]wretch like [D]me`}
             {saving ? "Saving..." : isNew ? "Create Song" : "Update Song"}
           </button>
           <Link
-            to={isNew ? "/songs" : `/songs/${id}`}
+            to={isNew ? "/songs" : currentVariation ? `/songs/${id}?variation=${currentVariation.id}` : `/songs/${id}`}
             className="inline-flex items-center rounded-md border border-[hsl(var(--border))] px-6 py-2 text-sm hover:bg-[hsl(var(--muted))] transition-colors"
           >
             Cancel

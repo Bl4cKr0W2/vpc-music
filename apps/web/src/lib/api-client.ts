@@ -111,6 +111,7 @@ export const songsApi = {
     return request<{ songs: Song[]; total: number }>(`/api/songs${query ? `?${query}` : ""}`);
   },
   get: (id: string) => request<{ song: Song; variations: SongVariation[] }>(`/api/songs/${id}`),
+  getTags: () => request<{ tags: string[] }>("/api/songs/tags"),
   create: (data: Partial<Song>) =>
     request<{ song: Song }>("/api/songs", { method: "POST", body: JSON.stringify(data) }),
   update: (id: string, data: Partial<Song>) =>

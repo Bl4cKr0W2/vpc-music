@@ -7,6 +7,7 @@ declare module "@vpc-music/shared" {
   export const NASHVILLE_NUMBERS: string[];
   export const CHORD_REGEX: RegExp;
   export const SECTION_KEYWORDS: string[];
+  export const PRESET_TAGS: string[];
 
   // ── Roles ──────────────────────────────────────
   export const ROLES: Record<string, string>;

@@ -1,44 +1,72 @@
 /**
- * Email utility — sends transactional emails via Mailgun SMTP (nodemailer).
+ * Email utility — sends transactional emails via Mailgun HTTP API.
  *
- * In development (no MAILGUN_SMTP_USER set), emails are logged to console.
- * In production, emails go through Mailgun's SMTP relay.
+ * In development (no MAILGUN_API_KEY or MAILGUN_DOMAIN set), emails are logged to console.
+ * In production, emails go through Mailgun's REST API using the private API key.
  */
 
-import nodemailer from "nodemailer";
 import { env } from "../config/env.js";
 import { logger } from "./logger.js";
 
-/** @type {import("nodemailer").Transporter | null} */
-let transporter = null;
+let transportModeLogged = false;
 
 /**
- * Lazily create the nodemailer transporter.
- * Uses Mailgun SMTP when credentials are present, otherwise logs to console.
+ * Log the active email transport once.
  */
-function getTransporter() {
-  if (transporter) return transporter;
+function logTransportMode() {
+  if (transportModeLogged) return;
 
-  if (env.MAILGUN_SMTP_USER && env.MAILGUN_SMTP_PASS) {
-    transporter = nodemailer.createTransport({
-      host: env.MAILGUN_SMTP_HOST,
-      port: env.MAILGUN_SMTP_PORT,
-      secure: env.MAILGUN_SMTP_PORT === 465,
-      auth: {
-        user: env.MAILGUN_SMTP_USER,
-        pass: env.MAILGUN_SMTP_PASS,
-      },
-    });
-    logger.info("Email transport: Mailgun SMTP");
+  if (env.MAILGUN_API_KEY && env.MAILGUN_DOMAIN) {
+    logger.info("Email transport: Mailgun API");
   } else {
-    // Dev fallback — log to console instead of sending
-    transporter = nodemailer.createTransport({
-      jsonTransport: true,
-    });
-    logger.info("Email transport: console (no MAILGUN credentials)");
+    logger.info("Email transport: console (no MAILGUN API credentials)");
   }
 
-  return transporter;
+  transportModeLogged = true;
+}
+
+function buildDevEnvelope({ from, to, subject, html }) {
+  return {
+    from: [{ address: from, name: "" }],
+    to: [{ address: to, name: "" }],
+    subject,
+    html,
+  };
+}
+
+async function sendViaMailgunApi({ from, to, subject, html }) {
+  const endpoint = `${env.MAILGUN_API_BASE_URL}/v3/${env.MAILGUN_DOMAIN}/messages`;
+  const body = new URLSearchParams({
+    from,
+    to,
+    subject,
+    html,
+  });
+
+  const auth = Buffer.from(`api:${env.MAILGUN_API_KEY}`).toString("base64");
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      Authorization: `Basic ${auth}`,
+      "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+    },
+    body,
+  });
+
+  const raw = await response.text();
+  let payload = null;
+  try {
+    payload = raw ? JSON.parse(raw) : null;
+  } catch {
+    payload = null;
+  }
+
+  if (!response.ok) {
+    const message = payload?.message || raw || `Mailgun API request failed with HTTP ${response.status}`;
+    throw new Error(message);
+  }
+
+  return payload || { id: null, message: raw };
 }
 
 /**
@@ -46,19 +74,21 @@ function getTransporter() {
  * @param {{ to: string, subject: string, html: string }} options
  */
 export async function sendEmail({ to, subject, html }) {
-  const transport = getTransporter();
+  logTransportMode();
   const from = env.EMAIL_FROM;
 
-  const info = await transport.sendMail({ from, to, subject, html });
-
-  if (!env.MAILGUN_SMTP_USER) {
-    // Dev mode — log the email JSON so developers can see it
+  if (!env.MAILGUN_API_KEY || !env.MAILGUN_DOMAIN) {
+    const envelope = buildDevEnvelope({ from, to, subject, html });
     logger.info(`📧 Email (dev): to=${to} subject="${subject}"`);
-    logger.debug(info.message); // JSON envelope
-  } else {
-    logger.info(`📧 Email sent: to=${to} subject="${subject}" messageId=${info.messageId}`);
+    logger.debug(JSON.stringify(envelope));
+    return {
+      message: JSON.stringify(envelope),
+      envelope,
+    };
   }
 
+  const info = await sendViaMailgunApi({ from, to, subject, html });
+  logger.info(`📧 Email sent: to=${to} subject="${subject}" messageId=${info.id || "n/a"}`);
   return info;
 }
 
@@ -118,11 +148,15 @@ export function buildResetEmail(resetUrl) {
 
 /**
  * Build the team-invite email HTML.
- * @param {{ inviteUrl: string, displayName?: string, orgName?: string }} opts
+ * @param {{ inviteUrl: string, displayName: string, orgName?: string, ctaLabel?: string }} opts
  * @returns {string} HTML
  */
-export function buildInviteEmail({ inviteUrl, displayName, orgName }) {
-  const greeting = displayName ? `Hi ${displayName},` : "Hi,";
+export function buildInviteEmail({ inviteUrl, displayName, orgName, ctaLabel = "Accept Invitation" }) {
+  if (!displayName?.trim()) {
+    throw new Error("Display name is required to build an invite email");
+  }
+
+  const greeting = `Hi ${displayName.trim()},`;
   const teamText = orgName ? `the <strong>${orgName}</strong> worship team` : "a worship team";
 
   return emailWrapper(`
@@ -134,7 +168,7 @@ export function buildInviteEmail({ inviteUrl, displayName, orgName }) {
     </p>
     <div style="text-align:center;margin:24px 0">
       <a href="${inviteUrl}" style="display:inline-block;background:${BRAND_COLOR};color:#ffffff;text-decoration:none;padding:12px 32px;border-radius:6px;font-weight:600;font-size:14px">
-        Accept Invitation
+        ${ctaLabel}
       </a>
     </div>
     <p style="color:#6b7280;font-size:13px;line-height:1.5;margin:24px 0 0">

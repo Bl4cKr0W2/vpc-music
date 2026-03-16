@@ -89,6 +89,35 @@ songRoutes.get(
   })
 );
 
+// ── GET /api/songs/tags — list all unique tags ───────────────
+songRoutes.get(
+  "/tags",
+  auth,
+  orgContext,
+  asyncHandler(async (req, res) => {
+    const conditions = [];
+    if (req.org) {
+      conditions.push(eq(songs.organizationId, req.org.id));
+    }
+
+    const rows = conditions.length > 0
+      ? await db.select({ tags: songs.tags }).from(songs).where(and(...conditions))
+      : await db.select({ tags: songs.tags }).from(songs);
+
+    // Tags are stored comma-separated; collect unique values
+    const tagSet = new Set();
+    for (const row of rows) {
+      if (row.tags) {
+        for (const t of row.tags.split(",")) {
+          const trimmed = t.trim().toLowerCase();
+          if (trimmed) tagSet.add(trimmed);
+        }
+      }
+    }
+    res.json({ tags: [...tagSet].sort() });
+  })
+);
+
 // ── GET /api/songs/:id — get single song ─────────────────────
 songRoutes.get(
   "/:id",

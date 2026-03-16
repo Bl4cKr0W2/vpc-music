@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { SongViewPage } from "@/pages/songs/SongViewPage";
 
@@ -138,6 +139,21 @@ describe("SongViewPage", () => {
       renderPage();
       await waitFor(() => {
         expect(screen.getByText("Edit").closest("a")).toHaveAttribute("href", "/songs/song-1/edit");
+      });
+    });
+
+    it("includes the selected variation in the edit link", async () => {
+      const user = userEvent.setup();
+      mockGet.mockResolvedValue({
+        song: mockSong,
+        variations: [{ id: "v1", songId: "song-1", name: "Acoustic", content: "[C]Amazing grace", key: "C" }],
+      });
+      renderPage();
+
+      await user.click(await screen.findByRole("button", { name: /acoustic/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText("Edit").closest("a")).toHaveAttribute("href", "/songs/song-1/edit?variation=v1");
       });
     });
 

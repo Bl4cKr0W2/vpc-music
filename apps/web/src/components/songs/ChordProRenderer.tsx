@@ -48,7 +48,7 @@ export const ChordProRenderer = forwardRef<ChordProRendererHandle, ChordProRende
     <div className="space-y-2">
       {/* Transpose controls */}
       {showChords && (
-        <div className="flex items-center gap-3 text-sm">
+        <div className="flex items-center gap-3 text-sm print-hidden">
           <span className="text-[hsl(var(--muted-foreground))]">Transpose:</span>
           <button
             onClick={handleDown}
@@ -81,14 +81,14 @@ export const ChordProRenderer = forwardRef<ChordProRendererHandle, ChordProRende
         </div>
       )}
 
-      {/* Directives (title, artist, etc.) */}
+      {/* Directives (title, artist, etc.) — hidden in print because SongViewPage has its own print-meta block */}
       {doc.directives.title && (
-        <h2 className="text-xl font-brand text-[hsl(var(--foreground))]">
+        <h2 className="text-xl font-brand text-[hsl(var(--foreground))] print-hidden">
           {doc.directives.title}
         </h2>
       )}
       {doc.directives.artist && (
-        <div className="text-sm text-[hsl(var(--muted-foreground))]">
+        <div className="text-sm text-[hsl(var(--muted-foreground))] print-hidden">
           {doc.directives.artist}
         </div>
       )}
