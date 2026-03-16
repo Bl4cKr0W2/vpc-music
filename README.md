@@ -833,14 +833,21 @@ vpc-music/
 
 ## Testing
 
-The project uses **Vitest** across both apps with unit and component tests.
+The project uses **Vitest** across both apps with **791 tests** (674 web + 117 API) — all passing.
 
-### Web Tests (`apps/web`)
+### Web Tests (`apps/web`) — 674 tests, 39 files
 - **Environment:** jsdom with `@testing-library/react` + `@testing-library/jest-dom`
 - **Run:** `pnpm test` (from root or `apps/web`)
-- **Coverage areas:** Pages (Landing, Login, Dashboard, Songs, Setlists, Settings, Admin, SharedSong, NotFound), components (ChordPro renderer, print stylesheet, theme toggle, app shell), utilities (transpose, Nashville numbers, OnSong converter, ChordPro parser, music constants, api-client), auth flows (protected routes, sandbox login, forgot/reset password), features (share management, song variations, real-time sync, export formats, PDF import), PWA/offline mode (manifest, meta tags, Vite config, service worker registration, offline fallback, TypeScript declarations)
+- **Coverage areas:**
+  - **Pages:** Landing, Login, Dashboard, Songs (list/view/edit), Setlists, Settings, Admin, SharedSong, NotFound, ForgotPassword, ResetPassword
+  - **Components:** ChordProRenderer (transpose controls, Nashville display, directives, sections, AutoScroll), print stylesheet, theme toggle, app shell
+  - **Contexts:** AuthContext (login/register/logout, session restore, activeOrg derivation, setActiveOrganizationId sync), ThemeContext
+  - **Hooks:** useConductor (Socket.IO conductor/member modes, room state updates, song navigation, scroll sync, cleanup), useKeyboardShortcuts
+  - **Utilities:** transpose, Nashville numbers, OnSong converter, ChordPro parser, music constants, api-client (including PDF import), oauth-popup (popup open/close, postMessage handling, origin validation)
+  - **Features:** share management, song variations, real-time sync, export formats, PDF import, song edit history, sticky notes
+  - **PWA/Offline:** manifest, meta tags, Vite config, service worker registration, offline fallback, TypeScript declarations
 
-### API Tests (`apps/api`)
+### API Tests (`apps/api`) — 117 tests, 7 files
 - **Environment:** Node.js
 - **Run:** `pnpm --filter @vpc-music/api test`
 - **Coverage areas:** Error handling middleware (`createError`, `asyncHandler`, `errorHandler`), auth middleware (JWT validation), org context middleware (`orgContext`, `requireOrg`, `requireOrgRole`), email utilities (send, template builders), conductor/real-time sync (room management, events), PDF-to-ChordPro conversion pipeline (column detection, line assembly, chord classification, chord-to-lyric alignment, metadata extraction, section detection, plain-text fallback)
