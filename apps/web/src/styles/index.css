@@ -397,7 +397,8 @@
 
   .btn-xs {
     @apply px-2 py-1 text-xs;
-    @apply outline-none ring-4 ring-offset-2;
+    min-height: 2.25rem;
+  }
 
   .btn-icon {
     @apply p-1.5;

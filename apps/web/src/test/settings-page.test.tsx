@@ -39,7 +39,7 @@ vi.mock("@/contexts/ThemeContext", () => ({
     setSecondaryChordColor: mockSetSecondaryChordColor,
     pageBackground: "#f8f9fa",
     setPageBackground: mockSetPageBackground,
-    songFontFamily: "sans",
+    songFontFamily: "mono",
     setSongFontFamily: mockSetSongFontFamily,
   }),
   EDITOR_MODE_OPTIONS: [
@@ -47,8 +47,6 @@ vi.mock("@/contexts/ThemeContext", () => ({
     { value: "advanced", label: "Advanced", description: "Advanced description" },
   ],
   SONG_FONT_OPTIONS: [
-    { value: "sans", label: "Inter", description: "Inter description" },
-    { value: "serif", label: "Vidaloka", description: "Serif description" },
     { value: "mono", label: "Monospace", description: "Mono description" },
   ],
   THEME_PRESETS: {
@@ -58,7 +56,7 @@ vi.mock("@/contexts/ThemeContext", () => ({
       chordColor: "#7dd3fc",
       secondaryChordColor: "#c084fc",
       pageBackground: "#000435",
-      songFontFamily: "sans",
+      songFontFamily: "mono",
     },
     "print-light": {
       theme: "light",
@@ -66,7 +64,7 @@ vi.mock("@/contexts/ThemeContext", () => ({
       chordColor: "#b91c1c",
       secondaryChordColor: "#7c3aed",
       pageBackground: "#ffffff",
-      songFontFamily: "serif",
+      songFontFamily: "mono",
     },
     classic: {
       theme: "light",
@@ -74,7 +72,7 @@ vi.mock("@/contexts/ThemeContext", () => ({
       chordColor: "#ca9762",
       secondaryChordColor: "#8b5cf6",
       pageBackground: "#f8f9fa",
-      songFontFamily: "sans",
+      songFontFamily: "mono",
     },
   },
   THEME_PRESET_OPTIONS: [
@@ -157,7 +155,7 @@ describe("SettingsPage", () => {
       expect(screen.getByLabelText(/primary chord color/i)).toBeInTheDocument();
       expect(screen.getByLabelText(/secondary chord color/i)).toBeInTheDocument();
       expect(screen.getByLabelText(/page background color/i)).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: /vidaloka display font/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /monospace display font/i })).toBeInTheDocument();
     });
 
     it("renders Profile section with email and display name", () => {
@@ -267,7 +265,7 @@ describe("SettingsPage", () => {
           chordColor: "#7dd3fc",
           secondaryChordColor: "#c084fc",
           pageBackground: "#000435",
-          songFontFamily: "sans",
+          songFontFamily: "mono",
         }),
       );
     });
@@ -278,12 +276,12 @@ describe("SettingsPage", () => {
       fireEvent.change(screen.getByLabelText(/primary chord color/i), { target: { value: "#123456" } });
       fireEvent.change(screen.getByLabelText(/secondary chord color/i), { target: { value: "#654321" } });
       fireEvent.change(screen.getByLabelText(/page background color/i), { target: { value: "#abcdef" } });
-      await user.click(screen.getByRole("button", { name: /vidaloka display font/i }));
+      await user.click(screen.getByRole("button", { name: /monospace display font/i }));
 
       expect(mockSetChordColor).toHaveBeenCalledWith("#123456");
       expect(mockSetSecondaryChordColor).toHaveBeenCalledWith("#654321");
       expect(mockSetPageBackground).toHaveBeenCalledWith("#abcdef");
-      expect(mockSetSongFontFamily).toHaveBeenCalledWith("serif");
+      expect(mockSetSongFontFamily).toHaveBeenCalledWith("mono");
     });
 
     it("saves profile on submit", async () => {

@@ -41,7 +41,7 @@ vi.mock("@/contexts/ThemeContext", () => ({
     chordColor: "#ca9762",
     secondaryChordColor: "#8b5cf6",
     pageBackground: "#f8f9fa",
-    songFontFamily: "sans",
+    songFontFamily: "mono",
     setTheme: vi.fn(),
     toggleTheme: vi.fn(),
     setContrastMode: vi.fn(),
@@ -58,8 +58,6 @@ vi.mock("@/contexts/ThemeContext", () => ({
     { value: "advanced", label: "Advanced", description: "Advanced description" },
   ],
   SONG_FONT_OPTIONS: [
-    { value: "sans", label: "Inter", description: "Inter description" },
-    { value: "serif", label: "Vidaloka", description: "Serif description" },
     { value: "mono", label: "Monospace", description: "Mono description" },
   ],
   THEME_PRESETS: {
@@ -69,7 +67,7 @@ vi.mock("@/contexts/ThemeContext", () => ({
       chordColor: "#7dd3fc",
       secondaryChordColor: "#c084fc",
       pageBackground: "#000435",
-      songFontFamily: "sans",
+      songFontFamily: "mono",
     },
     "print-light": {
       theme: "light",
@@ -77,7 +75,7 @@ vi.mock("@/contexts/ThemeContext", () => ({
       chordColor: "#b91c1c",
       secondaryChordColor: "#7c3aed",
       pageBackground: "#ffffff",
-      songFontFamily: "serif",
+      songFontFamily: "mono",
     },
     classic: {
       theme: "light",
@@ -85,7 +83,7 @@ vi.mock("@/contexts/ThemeContext", () => ({
       chordColor: "#ca9762",
       secondaryChordColor: "#8b5cf6",
       pageBackground: "#f8f9fa",
-      songFontFamily: "sans",
+      songFontFamily: "mono",
     },
   },
   THEME_PRESET_OPTIONS: [

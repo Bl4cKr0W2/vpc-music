@@ -5,7 +5,7 @@
     "private": true,
     "packageManager": "pnpm@9.15.0",
     "scripts": {
-        "dev": "concurrently \"pnpm dev:api\" \"pnpm dev:web\"",
+        "dev": "pnpm -r --parallel --stream --filter @vpc-music/api --filter @vpc-music/web dev",
         "build": "node scripts/build-router.mjs",
         "dev:api": "pnpm --filter @vpc-music/api dev",
         "dev:web": "pnpm --filter @vpc-music/web dev",

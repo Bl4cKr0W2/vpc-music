@@ -266,7 +266,7 @@ The built-in ChordPro editor provides a rich editing experience with real-time f
   - **Dark / Light theme toggle** (carried forward from current site) with persistent preference
   - Background / page color customization with live preview from Settings
   - Primary + secondary chord color customization for editor syntax and rendered charts
-  - Rendered-song font selection (Inter, Vidaloka, Monospace)
+  - Rendered-song font is fixed to a monospace stack for alignment consistency
   - Theme presets: **Stage Dark**, **Print Light**, **Classic**, and **Custom**
 - **2-Pane View** — side-by-side display (lyrics + chords, two songs, etc.)
 - **Compressed / Spaced Layout** — toggle density to fit more on screen or improve readability

@@ -107,7 +107,7 @@ export function SettingsPage() {
         if (typeof settings.pageBackground === "string") {
           setPageBackground(settings.pageBackground);
         }
-        if (settings.songFontFamily === "sans" || settings.songFontFamily === "serif" || settings.songFontFamily === "mono") {
+        if (settings.songFontFamily === "mono") {
           setSongFontFamily(settings.songFontFamily);
         }
       })
@@ -444,7 +444,7 @@ export function SettingsPage() {
             ))}
           </div>
           <p className="text-xs text-[hsl(var(--muted-foreground))]">
-            {SONG_FONT_OPTIONS.find((option) => option.value === songFontFamily)?.description}
+            {SONG_FONT_OPTIONS[0]?.description}
           </p>
         </div>
 

@@ -5,7 +5,7 @@ export type ResolvedTheme = "dark" | "light";
 export type ContrastMode = "normal" | "high";
 export type EditorMode = "beginner" | "advanced";
 export type ThemePreset = "custom" | "stage-dark" | "print-light" | "classic";
-export type SongFontFamily = "sans" | "serif" | "mono";
+export type SongFontFamily = "mono";
 
 interface AppearanceSettings {
   editorMode: EditorMode;
@@ -59,12 +59,10 @@ const DEFAULT_APPEARANCE: AppearanceSettings = {
   chordColor: "#ca9762",
   secondaryChordColor: "#8b5cf6",
   pageBackground: "#f8f9fa",
-  songFontFamily: "sans",
+  songFontFamily: "mono",
 };
 
 const SONG_FONT_STACKS: Record<SongFontFamily, string> = {
-  sans: 'var(--font-sans)',
-  serif: 'var(--font-serif)',
   mono: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
 };
 
@@ -77,7 +75,7 @@ export const THEME_PRESETS: Record<Exclude<ThemePreset, "custom">, ThemePresetDe
     chordColor: "#7dd3fc",
     secondaryChordColor: "#c084fc",
     pageBackground: "#000435",
-    songFontFamily: "sans",
+    songFontFamily: "mono",
   },
   "print-light": {
     label: "Print Light",
@@ -87,7 +85,7 @@ export const THEME_PRESETS: Record<Exclude<ThemePreset, "custom">, ThemePresetDe
     chordColor: "#b91c1c",
     secondaryChordColor: "#7c3aed",
     pageBackground: "#ffffff",
-    songFontFamily: "serif",
+    songFontFamily: "mono",
   },
   classic: {
     label: "Classic",
@@ -97,14 +95,12 @@ export const THEME_PRESETS: Record<Exclude<ThemePreset, "custom">, ThemePresetDe
     chordColor: "#ca9762",
     secondaryChordColor: "#8b5cf6",
     pageBackground: "#f8f9fa",
-    songFontFamily: "sans",
+    songFontFamily: "mono",
   },
 };
 
 export const SONG_FONT_OPTIONS: { value: SongFontFamily; label: string; description: string }[] = [
-  { value: "sans", label: "Inter", description: "Modern and clean for screens." },
-  { value: "serif", label: "Vidaloka", description: "Traditional print-style song display." },
-  { value: "mono", label: "Monospace", description: "Alignment-friendly for chart review." },
+  { value: "mono", label: "Monospace", description: "Alignment-friendly for every rendered chart." },
 ];
 
 export const EDITOR_MODE_OPTIONS: { value: EditorMode; label: string; description: string }[] = [
@@ -148,10 +144,7 @@ function readStoredAppearance(): AppearanceSettings {
       chordColor: normalizeHexColor(parsed.chordColor ?? DEFAULT_APPEARANCE.chordColor, DEFAULT_APPEARANCE.chordColor),
       secondaryChordColor: normalizeHexColor(parsed.secondaryChordColor ?? DEFAULT_APPEARANCE.secondaryChordColor, DEFAULT_APPEARANCE.secondaryChordColor),
       pageBackground: normalizeHexColor(parsed.pageBackground ?? DEFAULT_APPEARANCE.pageBackground, DEFAULT_APPEARANCE.pageBackground),
-      songFontFamily:
-        parsed.songFontFamily === "serif" || parsed.songFontFamily === "mono" || parsed.songFontFamily === "sans"
-          ? parsed.songFontFamily
-          : DEFAULT_APPEARANCE.songFontFamily,
+      songFontFamily: parsed.songFontFamily === "mono" ? parsed.songFontFamily : DEFAULT_APPEARANCE.songFontFamily,
     };
   } catch {
     return DEFAULT_APPEARANCE;

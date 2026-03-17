@@ -46,7 +46,7 @@ function ThemeConsumer() {
       <button data-testid="set-custom-chord" onClick={() => setChordColor("#123456")}>Chord color</button>
       <button data-testid="set-custom-secondary" onClick={() => setSecondaryChordColor("#654321")}>Secondary chord color</button>
       <button data-testid="set-custom-background" onClick={() => setPageBackground("#abcdef")}>Page background</button>
-      <button data-testid="set-font-serif" onClick={() => setSongFontFamily("serif")}>Serif font</button>
+      <button data-testid="set-font-mono" onClick={() => setSongFontFamily("mono")}>Monospace font</button>
     </div>
   );
 }
@@ -224,14 +224,14 @@ describe("ThemeContext", () => {
       screen.getByTestId("set-custom-chord").click();
       screen.getByTestId("set-custom-secondary").click();
       screen.getByTestId("set-custom-background").click();
-      screen.getByTestId("set-font-serif").click();
+      screen.getByTestId("set-font-mono").click();
     });
     expect(screen.getByTestId("editor-mode").textContent).toBe("beginner");
     expect(document.documentElement.dataset.editorMode).toBe("beginner");
     expect(document.documentElement.style.getPropertyValue("--song-chord-color")).toBe("#123456");
     expect(document.documentElement.style.getPropertyValue("--song-secondary-chord-color")).toBe("#654321");
     expect(document.documentElement.style.getPropertyValue("--page-background-color")).toBe("#abcdef");
-    expect(document.documentElement.style.getPropertyValue("--song-display-font")).toContain("var(--font-serif)");
+    expect(document.documentElement.style.getPropertyValue("--song-display-font")).toContain("ui-monospace");
   });
 
   it("applies stage dark theme preset", () => {
