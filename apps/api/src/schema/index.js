@@ -13,3 +13,4 @@ export * from "./shareTeams.js";
 export * from "./songUsages.js";
 export * from "./songEdits.js";
 export * from "./stickyNotes.js";
+export * from "./songCollaborationEntries.js";

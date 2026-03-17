@@ -215,7 +215,7 @@ The built-in ChordPro editor provides a rich editing experience with real-time f
 **Inline Validation** — real-time error/warning panel below the editor:
 - Missing closing `]` bracket, unbalanced `{`/`}` braces
 - Unknown directives, duplicate unique directives (title, key, tempo, etc.)
-- Collapsible issue list with line numbers and severity icons
+- Collapsible issue list with line numbers, severity icons, and one-click fixes for common syntax/chord cleanup issues
 
 **Keyboard Shortcuts:**
 
@@ -233,6 +233,14 @@ The built-in ChordPro editor provides a rich editing experience with real-time f
 **Insert Menu** — 19 quick-insert options including all section types, metadata block template, and full song skeleton.
 
 **Help Section** — collapsible 4-tab reference panel (Quick Tips, Shortcuts, Common Directives, Section Templates) with localStorage persistence.
+
+**Smart Suggestions & Context Help** — the editor now suggests missing metadata, unlabeled Verse/Instrumental sections, likely chorus blocks, and malformed chord spellings, while a live cursor-aware help card adapts to directive, section, chord, and lyric contexts.
+
+**Section Organizer** — advanced mode now includes a structured section organizer with previews, jump-to-line shortcuts, drag-and-drop source reordering, fold/expand controls, and auto-numbered duplicate section actions.
+
+**Arrangement Builder** — existing songs can now build a reusable section order with repeat markers like `Chorus ×2`, preview the generated arrangement, and save it as a new song variation.
+
+**Rich Editor Foundation** — advanced mode now uses a CodeMirror 6 editing surface with native line numbers, active-line highlighting, custom ChordPro syntax decorations, and inline diagnostics while beginner mode keeps the existing textarea workflow as a compatibility fallback.
 
 **Accessibility & Tablet Upgrades** — sticky editor toolbar, quick section-jump chips, keyboard shortcuts for format/help/section navigation (`Ctrl+Shift+F`, `F1`, `Ctrl+P`, `Ctrl+1/2/3`), mobile/tablet bottom-sheet editor menus, and labeled dialog/tool controls for screen readers.
 
@@ -375,23 +383,25 @@ Here are some features worth considering that could take VPC Music to the next l
 - **Setlist Countdown Timer** — configurable 2–10 min timer per song with progress bar, pause/play, warning states ✅ *Implemented*
 - **Performance-mode layout** — full-screen distraction-free overlay with large fonts (12–36px), no nav, collapsible toolbar ✅ *Implemented*
 - **Setlist song transitions** — prev/next buttons, keyboard (N/P, ←/→), dot navigation, "Up next" banner ✅ *Implemented*
+- **Setlist drag-and-drop reorder** — setlist detail pages now support drag-and-drop song ordering alongside the existing move up/down controls ✅ *Implemented*
 - **Foot Pedal / Bluetooth Control** — page turns and song navigation hands-free ✅ *Implemented*
 
 ### Collaboration & Rehearsal
 - **Live Setlist Sync** — band leader pushes the current song/position to all connected devices in real time
-- **Rehearsal Markers** — tag tricky sections during practice so they surface before the next gig
-- **Comment Threads on Songs** — per-section discussion (e.g. "Let's extend the bridge here")
+- **Rehearsal Markers** — tag tricky sections during practice so they surface before the next gig ✅ *Implemented*
+- **Comment Threads on Songs** — per-section discussion (e.g. "Let's extend the bridge here") ✅ *Implemented*
+- **Rehearsal Notes Layer** — keep optional performance notes like "Piano starts alone" or "Drums in at chorus" outside the canonical ChordPro source ✅ *Implemented*
 
 ### Smart Features
 - **Recently Played / Frequently Used** — dashboard section showing top songs by usage count with last-used date ✅ *Implemented*
 - **Key Compatibility Checker** — flags awkward key transitions (≥5 semitones) between adjacent setlist songs ✅ *Implemented*
 - **Song Status Indicator** — visual flags on dashboard for songs missing key or tempo ✅ *Implemented*
-- **Duplicate Detection** — flag when a new song closely matches an existing one (title or lyrics)
+- **Duplicate Detection** — SongEditPage now flags likely duplicate songs in real time using title and lyric similarity before you save ✅ *Implemented*
 - **AI Chord Suggestion** — auto-detect or suggest chords from lyrics/audio
 
 ### Offline & Sync
-- **Offline Mode** — ✅ PWA with auto-updating service worker (Workbox), precached app shell, runtime-cached API data (NetworkFirst with 7-day expiry), Google Fonts caching, branded offline fallback page
-- **Conflict Resolution** — smart merge when the same song is edited on multiple devices
+- **Offline Mode** — ✅ PWA with auto-updating service worker (Workbox), precached app shell, runtime-cached API data (NetworkFirst with 7-day expiry), Google Fonts caching, branded offline fallback page, offline banners, cached song/setlist detail fallback, cached performance charts, and queued main-song edits that sync after reconnecting
+- **Conflict Resolution** — optimistic concurrency on song saves with a merge dialog, field-by-field keep-mine/use-server choices, and an explicit overwrite fallback when you want last-write-wins behavior ✅ *Implemented*
 
 ### Accessibility & Device Support
 - **Dark Mode** — eye-friendly for dim stages (already implemented in current site)
@@ -1023,8 +1033,7 @@ Test files live alongside their source in `src/test/` directories within each ap
 
 ### Still Pending From This Pass
 
-- [ ] **Collaboration & Rehearsal (Section 7.2)** — comment threads on songs, rehearsal markers, rehearsal notes layer (requires new DB schema tables)
-- [ ] **Duplicate detection (Section 7.3)** — flag when a new song closely matches an existing one (title or lyrics similarity)
+- [x] **Current roadmap pass** — all currently tracked musician-facing items from this pass are implemented; richer future work is now additive rather than backlog carry-over
 
 ---
 

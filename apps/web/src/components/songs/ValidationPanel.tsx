@@ -4,13 +4,14 @@ import { AlertTriangle, XCircle, ChevronDown } from "lucide-react";
 
 interface ValidationPanelProps {
   source: string;
+  onApplyFix?: (issue: ValidationIssue) => void;
 }
 
 /**
  * Displays a collapsible panel of validation issues below the editor.
  * Only visible when there are validation issues to show.
  */
-export function ValidationPanel({ source }: ValidationPanelProps) {
+export function ValidationPanel({ source, onApplyFix }: ValidationPanelProps) {
   const issues = useMemo(() => validateChordPro(source), [source]);
   const [expanded, setExpanded] = useState(true);
 
@@ -66,7 +67,7 @@ export function ValidationPanel({ source }: ValidationPanelProps) {
           data-testid="validation-issues"
         >
           {issues.map((issue, idx) => (
-            <IssueRow key={idx} issue={issue} />
+            <IssueRow key={idx} issue={issue} onApplyFix={onApplyFix} />
           ))}
         </div>
       )}
@@ -74,7 +75,7 @@ export function ValidationPanel({ source }: ValidationPanelProps) {
   );
 }
 
-function IssueRow({ issue }: { issue: ValidationIssue }) {
+function IssueRow({ issue, onApplyFix }: { issue: ValidationIssue; onApplyFix?: (issue: ValidationIssue) => void }) {
   return (
     <div className="flex items-start gap-2 py-1 text-xs" data-testid="validation-issue">
       {issue.severity === "error" ? (
@@ -82,12 +83,24 @@ function IssueRow({ issue }: { issue: ValidationIssue }) {
       ) : (
         <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
       )}
-      <span className="text-[hsl(var(--muted-foreground))]">
-        <span className="font-mono font-medium text-[hsl(var(--foreground))]">
-          Line {issue.line}:
-        </span>{" "}
-        {issue.message}
-      </span>
+      <div className="flex min-w-0 flex-1 items-start justify-between gap-3">
+        <span className="text-[hsl(var(--muted-foreground))]">
+          <span className="font-mono font-medium text-[hsl(var(--foreground))]">
+            Line {issue.line}:
+          </span>{" "}
+          {issue.message}
+        </span>
+        {issue.suggestedFixLabel && onApplyFix ? (
+          <button
+            type="button"
+            onClick={() => onApplyFix(issue)}
+            className="shrink-0 rounded border border-[hsl(var(--border))] px-2 py-0.5 font-medium text-[hsl(var(--foreground))] transition-colors hover:bg-[hsl(var(--muted))]"
+            data-testid="validation-fix-btn"
+          >
+            {issue.suggestedFixLabel}
+          </button>
+        ) : null}
+      </div>
     </div>
   );
 }

@@ -57,9 +57,7 @@ describe("chordpro-validate", () => {
 
   it("warns on unknown directive", () => {
     const issues = validateChordPro("{foobar: test}");
-    expect(issues).toHaveLength(1);
-    expect(issues[0].severity).toBe("warning");
-    expect(issues[0].message).toMatch(/Unknown directive/);
+    expect(issues.some((issue) => issue.message.match(/Unknown directive/))).toBe(true);
   });
 
   it("does not warn on known directives", () => {
@@ -137,5 +135,13 @@ That [G]saved a [Em]wretch like [D]me
 [G]I once was [C]lost, but [G]now am [D]found
 Was [G]blind, but [C]now I [G]see`;
     expect(validateChordPro(source)).toEqual([]);
+  });
+
+  it("suggests corrected chord spellings for malformed chord tokens", () => {
+    const issues = validateChordPro("[g / b]Amazing grace");
+    const chordWarning = issues.find((issue) => issue.code === "malformed-chord");
+    expect(chordWarning).toBeTruthy();
+    expect(chordWarning?.suggestedValue).toBe("G/B");
+    expect(chordWarning?.suggestedFixLabel).toBe("Use [G/B]");
   });
 });

@@ -39,6 +39,17 @@ vi.mock("@/contexts/ThemeContext", () => ({
   }),
 }));
 
+let mockConnectivityValue = {
+  isOnline: true,
+  syncingOfflineEdits: false,
+  pendingOfflineEditCount: 0,
+  refreshPendingOfflineEditCount: vi.fn(),
+};
+
+vi.mock("@/contexts/ConnectivityContext", () => ({
+  useConnectivity: () => mockConnectivityValue,
+}));
+
 vi.mock("react-router-dom", async () => {
   const actual = await vi.importActual("react-router-dom");
   return {
@@ -86,6 +97,12 @@ describe("AppShell", () => {
       switchOrg: mockSwitchOrg,
       refreshUser: mockRefreshUser,
       logout: mockLogout,
+    };
+    mockConnectivityValue = {
+      isOnline: true,
+      syncingOfflineEdits: false,
+      pendingOfflineEditCount: 0,
+      refreshPendingOfflineEditCount: vi.fn(),
     };
   });
 
@@ -203,6 +220,20 @@ describe("AppShell", () => {
       await user.click(screen.getByRole("button", { name: /create organization/i }));
 
       expect(screen.getByRole("dialog", { name: /create organization/i })).toBeInTheDocument();
+    });
+
+    it("shows an offline banner when disconnected", () => {
+      mockConnectivityValue.isOnline = false;
+      renderShell();
+
+      expect(screen.getByText(/you’re offline|you're offline/i)).toBeInTheDocument();
+    });
+
+    it("shows queued offline edit count when back online", () => {
+      mockConnectivityValue.pendingOfflineEditCount = 2;
+      renderShell();
+
+      expect(screen.getByText(/2 offline edits waiting to sync/i)).toBeInTheDocument();
     });
   });
 

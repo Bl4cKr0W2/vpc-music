@@ -99,6 +99,17 @@ describe("Error handling", () => {
 
     await expect(songsApi.get("bad-id")).rejects.toThrow("HTTP 502");
   });
+
+  it("attaches status and body to thrown API errors", async () => {
+    mockFetch.mockResolvedValue(errorResponse("Conflict", 409));
+
+    try {
+      await songsApi.update("s1", { title: "Updated" });
+    } catch (error: any) {
+      expect(error.status).toBe(409);
+      expect(error.body).toEqual({ error: { message: "Conflict" } });
+    }
+  });
 });
 
 // ── Songs API ───────────────────────────────────
@@ -181,6 +192,19 @@ describe("songsApi", () => {
 
     const [url] = mockFetch.mock.calls[0];
     expect(url).toContain("/api/songs/categories");
+  });
+
+  it("findDuplicates — posts title and content for duplicate detection", async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ matches: [{ id: "song-2", title: "Amazing Grace", overallScore: 0.9 }] }));
+
+    const result = await songsApi.findDuplicates({ title: "Amazing Grace", content: "Amazing grace how sweet the sound" });
+
+    expect(result.matches[0]?.id).toBe("song-2");
+
+    const [url, options] = mockFetch.mock.calls[0];
+    expect(url).toContain("/api/songs/duplicates/check");
+    expect(options.method).toBe("POST");
+    expect(JSON.parse(options.body)).toEqual({ title: "Amazing Grace", content: "Amazing grace how sweet the sound" });
   });
 
   it("list — omits empty params", async () => {

@@ -4,7 +4,7 @@ This document is a working reference for the **four current roles** in VPC Music
 
 It is written from the perspective of the **current product behavior and codebase as of March 16, 2026**.
 
-> **Current audit status:** Backend route hardening is in place for the audited write endpoints, previously public song/setlist/event detail routes now require authentication, and dedicated role-matrix coverage exists for the protected write routes. Frontend observer UI gating is **complete** — all edit/create/delete controls are hidden for observers across SongListPage, SongViewPage, SongEditPage, SetlistsPage, SetlistViewPage, and DashboardPage. Role-display polish is **complete** — `ROLE_DESCRIPTIONS` added to shared constants, role badge shown in AppShell header, and descriptions displayed in the invite form. Frontend rendering tests (22 tests across 5 pages × 4 roles) are **passing**.
+> **Current audit status:** Backend route hardening is in place for the audited write endpoints, previously public song/setlist/event detail routes now require authentication, and dedicated role-matrix coverage exists for the protected write routes. Frontend observer UI gating is **complete** — all edit/create/delete controls are hidden for observers across SongListPage, SongViewPage, SongEditPage, SetlistsPage, SetlistViewPage, and DashboardPage. Role-display polish is **complete** — `ROLE_DESCRIPTIONS` added to shared constants, role badge shown in AppShell header, and descriptions displayed in the invite form. Frontend rendering tests (22 tests across 5 pages × 4 roles) are **passing**. Owner bypass behavior, musician/admin separation, and admin-only vs editor-level boundaries have now been reviewed against the current middleware and role-gated UI coverage.
 
 ## Role model at a glance
 
@@ -55,10 +55,10 @@ In practice, the four roles we talk about day-to-day are:
 
 ## What an Owner cannot do
 
-- [ ] They are **not limited** by normal org role checks.
-- [ ] They do **not** need to be org `admin` to pass admin-style backend guards.
-- [ ] They do **not automatically create new product features or hidden owner-only UI** unless the code explicitly provides them.
-- [ ] They do **not** currently have a separately documented owner-only workflow beyond global override behavior.
+- [x] They are **not limited** by normal org role checks.
+- [x] They do **not** need to be org `admin` to pass admin-style backend guards.
+- [x] They do **not automatically create new product features or hidden owner-only UI** unless the code explicitly provides them.
+- [x] They do **not** currently have a separately documented owner-only workflow beyond global override behavior.
 
 ## Notes
 
@@ -95,9 +95,9 @@ In practice, the four roles we talk about day-to-day are:
 
 ## What an Admin cannot do
 
-- [ ] They do **not** have the global override power of an `owner`.
-- [ ] They do **not** become a system-wide super-user outside their org context.
-- [ ] They do **not** have a separate global role in the database unless also marked as `owner`.
+- [x] They do **not** have the global override power of an `owner`.
+- [x] They do **not** become a system-wide super-user outside their org context.
+- [x] They do **not** have a separate global role in the database unless also marked as `owner`.
 
 ## Notes
 
@@ -128,12 +128,12 @@ In practice, the four roles we talk about day-to-day are:
 
 ## What a Musician cannot do
 
-- [ ] Cannot access the **Team Management / Admin** page.
-- [ ] Cannot invite users through the admin workflow.
-- [ ] Cannot change other members’ org roles.
-- [ ] Cannot remove members from the organization.
-- [ ] Cannot batch share songs with other organizations or edit org-share assignments.
-- [ ] Does not have global `owner` bypass privileges.
+- [x] Cannot access the **Team Management / Admin** page.
+- [x] Cannot invite users through the admin workflow.
+- [x] Cannot change other members’ org roles.
+- [x] Cannot remove members from the organization.
+- [x] Cannot batch share songs with other organizations or edit org-share assignments.
+- [x] Does not have global `owner` bypass privileges.
 
 ## Notes
 
@@ -157,14 +157,14 @@ In practice, the four roles we talk about day-to-day are:
 
 ## What an Observer cannot do
 
-- [ ] Cannot access the **Team Management / Admin** page.
-- [ ] Cannot invite users.
-- [ ] Cannot change org roles.
-- [ ] Cannot remove members.
-- [ ] Cannot set or clear the **default variation** for a song.
-- [ ] Cannot batch share songs with other organizations or edit org-share assignments.
-- [ ] Cannot be treated as an editor-level role.
-- [ ] Should be considered **read-only** for content governance.
+- [x] Cannot access the **Team Management / Admin** page.
+- [x] Cannot invite users.
+- [x] Cannot change org roles.
+- [x] Cannot remove members.
+- [x] Cannot set or clear the **default variation** for a song.
+- [x] Cannot batch share songs with other organizations or edit org-share assignments.
+- [x] Cannot be treated as an editor-level role.
+- [x] Should be considered **read-only** for content governance.
 
 ## Notes
 
@@ -191,15 +191,15 @@ In practice, the four roles we talk about day-to-day are:
   - [x] Can change roles
   - [x] Can remove members
 - **Musician**
-  - [ ] Cannot access admin page
-  - [ ] Cannot invite members
-  - [ ] Cannot change roles
-  - [ ] Cannot remove members
+  - [x] Cannot access admin page
+  - [x] Cannot invite members
+  - [x] Cannot change roles
+  - [x] Cannot remove members
 - **Observer**
-  - [ ] Cannot access admin page
-  - [ ] Cannot invite members
-  - [ ] Cannot change roles
-  - [ ] Cannot remove members
+  - [x] Cannot access admin page
+  - [x] Cannot invite members
+  - [x] Cannot change roles
+  - [x] Cannot remove members
 
 ## Song editing
 
@@ -216,7 +216,7 @@ In practice, the four roles we talk about day-to-day are:
   - [x] Can edit songs
   - [x] Can delete songs
 - **Observer**
-  - [ ] Should not have edit authority
+  - [x] Should not have edit authority
 
 ## Variations
 
@@ -231,8 +231,8 @@ In practice, the four roles we talk about day-to-day are:
   - [x] Can set default variation
 - **Observer**
   - [x] Can view variations
-  - [ ] Cannot set default variation
-  - [ ] Should not have edit authority over variations
+  - [x] Cannot set default variation
+  - [x] Should not have edit authority over variations
 
 ## Setlists
 
@@ -247,18 +247,18 @@ In practice, the four roles we talk about day-to-day are:
   - [x] Can add selected song variations to setlists
 - **Observer**
   - [x] Can view setlist-linked songs
-  - [ ] Should not be treated as a setlist editor unless code explicitly says so
+  - [x] Should not be treated as a setlist editor unless code explicitly says so
 
 ## Global override
 
 - **Owner**
   - [x] Has global bypass for org-role middleware
 - **Admin**
-  - [ ] No global bypass
+  - [x] No global bypass
 - **Musician**
-  - [ ] No global bypass
+  - [x] No global bypass
 - **Observer**
-  - [ ] No global bypass
+  - [x] No global bypass
 
 ---
 
@@ -271,9 +271,9 @@ When we begin the code audit, these are the main questions to verify:
 - [x] Are setlist create/edit/delete actions explicitly protected to match the intended roles?
 - [x] Are protected write routes covered by role-matrix integration tests?
 - [x] Are observer users blocked both in the **UI** and the **API**, not just one layer? *(API hardening done; UI gating done — 22 frontend rendering tests verify observer sees no edit controls)*
-- [ ] Are owner privileges intentional everywhere they bypass org checks?
-- [ ] Are there any places where musician currently has more or less access than intended?
-- [ ] Are there any places where admin-only and editor-level features are mixed together unintentionally?
+- [x] Are owner privileges intentional everywhere they bypass org checks? *(Yes — current middleware explicitly treats global `owner` as the documented override baseline.)*
+- [x] Are there any places where musician currently has more or less access than intended? *(No unintended drift found in the audited write routes or the role-gated UI coverage. Musician remains the highest non-admin editor role.)*
+- [x] Are there any places where admin-only and editor-level features are mixed together unintentionally? *(No unintended mixing found in the audited paths: team management stays admin-only, while song/setlist editing remains available to admin + musician.)*
 
 ---
 

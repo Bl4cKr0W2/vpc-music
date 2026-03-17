@@ -9,13 +9,21 @@ It mixes:
 - **bigger feature ideas**
 - **help / onboarding ideas**
 
-> **Status as of March 16, 2026:** **Phase 1 and Phase 2 are now COMPLETE.**
+> **Status as of March 16, 2026:** **Phase 1, Phase 2, and Phase 3 are now COMPLETE.**
+>
+> **Phase 3 completion update** — the advanced editor now spans both the original textarea workflow and a richer CodeMirror foundation:
+> - smart suggestions for missing metadata, unlabeled sections, likely choruses, and malformed chord spellings
+> - one-click inline fixes in the validation panel for common syntax issues and chord spelling cleanup
+> - cursor-aware help cards for directives, sections, chords, and lyric lines
+> - a structured section organizer with drag-and-drop reordering, auto-numbered duplication, and fold/expand controls
+> - an arrangement builder that assembles section order, supports repeat markers like `Chorus ×2`, and saves arrangements as new variations
+> - CodeMirror 6 as the advanced editing surface with native line numbers, active-line state, custom ChordPro decorations, and inline diagnostics while beginner mode preserves the textarea fallback
 >
 > **Phase 1** — syntax highlighting (tokenizer + overlay), inline validation panel, collapsible help section (4 tabs), 7 keyboard shortcuts, expanded insert menu, and 79 new tests. See `202603161-tasks.md` Section 4.
 >
 > **Phase 2** — command palette (Ctrl+Space & slash commands, 35 commands, recent history), split preview (edit/split/preview modes with scroll sync), line numbers & section navigation (gutter, current line highlight, section jump dropdown), context menu (chord/section/lyrics/line context-aware actions), auto-format (directive normalization, metadata ordering, whitespace cleanup, format-on-save), and 81 new tests. See `202603161-tasks.md` Section 5.
->
-> Phase 3 items remain unimplemented.
+
+> **CodeMirror decision note** — CodeMirror 6 won over Monaco because it is lighter, easier to embed inside the existing React/Tailwind surface, and flexible enough to reuse the existing ChordPro tokenizer and validation pipeline.
 
 ---
 
@@ -553,7 +561,7 @@ Optional editor-side notes not embedded in the main ChordPro text:
 - “Drums in at chorus”
 - “Repeat bridge softly”
 
-This might be a parallel notes system rather than raw ChordPro.
+This is now implemented as a parallel collaboration layer on SongViewPage alongside per-section comment threads and rehearsal markers, so teams can keep rehearsal context outside the canonical ChordPro source.
 
 ---
 
@@ -612,12 +620,14 @@ This might be a parallel notes system rather than raw ChordPro.
 
 ## Phase 3: Advanced editing system
 
-- Move to richer code-editor foundation if needed
-- Add structured section organizer
-- Add drag/drop section reordering
-- Add smart suggestions
-- Add arrangement mode
-- Add contextual help system
+- Move to richer code-editor foundation ✅ *(advanced mode now uses a CodeMirror 6 surface while beginner mode keeps the textarea fallback for compatibility and simpler onboarding)*
+- Add structured section organizer ✅ *(advanced-mode organizer panel with previews, jump-to-line, and duplicate actions implemented)*
+- Add drag/drop section reordering ✅ *(organizer cards now reorder the underlying ChordPro source while preserving metadata)*
+- Add duplicate section workflow ✅ *(sections duplicate inline with auto-numbered labels such as Verse 2 / Chorus 2)*
+- Add section folding/collapse ✅ *(collapsed sections now render as condensed placeholders in a temporary read-only editor view until expanded)*
+- Add smart suggestions ✅ *(metadata nudges, section naming, likely chorus detection, chord spelling fixes implemented on the current editor foundation)*
+- Add arrangement mode ✅ *(SongEditPage now builds arrangement sequences, supports repeat markers, previews the generated chart, and saves it as a variation)*
+- Add contextual help system ✅ *(cursor-aware help cards + inline validation fixes implemented)*
 
 ---
 

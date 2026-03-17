@@ -8,6 +8,13 @@ import {
   type Song,
 } from "@/lib/api-client";
 import { useAuth } from "@/contexts/AuthContext";
+import {
+  isOfflineRequestError,
+  loadCachedSetlist,
+  loadCachedSetlistPerformanceContents,
+  saveCachedSetlist,
+  saveCachedSetlistPerformanceContents,
+} from "@/lib/offline-cache";
 import { toast } from "sonner";
 import {
   ArrowLeft,
@@ -49,6 +56,8 @@ export function SetlistViewPage() {
   const [deletingSetlist, setDeletingSetlist] = useState(false);
   const [availableSongs, setAvailableSongs] = useState<Song[]>([]);
   const [searchQ, setSearchQ] = useState("");
+  const [draggedSongItemId, setDraggedSongItemId] = useState<string | null>(null);
+  const [dragOverSongItemId, setDragOverSongItemId] = useState<string | null>(null);
 
   // ── Performance mode state ─────────────────────
   const [performanceMode, setPerformanceMode] = useState(false);
@@ -109,8 +118,19 @@ export function SetlistViewPage() {
       .then((res) => {
         setSetlist(res.setlist);
         setSongs(res.songs);
+        saveCachedSetlist(res);
       })
-      .catch(() => toast.error("Setlist not found"))
+      .catch((error) => {
+        const cached = loadCachedSetlist(id);
+        if (cached && isOfflineRequestError(error)) {
+          setSetlist(cached.response.setlist);
+          setSongs(cached.response.songs);
+          toast.info("Showing cached setlist while offline");
+          return;
+        }
+
+        toast.error("Setlist not found");
+      })
       .finally(() => setLoading(false));
   }, [id]);
 
@@ -125,7 +145,6 @@ export function SetlistViewPage() {
           try {
             const res = await songsApi.get(item.songId);
             const song = res.song;
-            // If a variation is specified, use its content
             const variation = item.variationId
               ? res.variations?.find((v) => v.id === item.variationId)
               : null;
@@ -140,11 +159,25 @@ export function SetlistViewPage() {
           }
         })
       );
+
+      if (map.size === 0 && id) {
+        const cachedMap = loadCachedSetlistPerformanceContents(id);
+        if (cachedMap.size > 0) {
+          setSongContents(cachedMap);
+          setLoadingContents(false);
+          toast.info("Using cached performance charts while offline");
+          return;
+        }
+      }
+
       setSongContents(map);
+      if (id && map.size > 0) {
+        saveCachedSetlistPerformanceContents(id, map);
+      }
       setLoadingContents(false);
     };
     fetchAll();
-  }, [performanceMode, songs]);
+  }, [id, performanceMode, songs]);
 
   // Load available songs for the add-song modal
   useEffect(() => {
@@ -182,29 +215,57 @@ export function SetlistViewPage() {
     if (index === 0 || !id) return;
     const newSongs = [...songs];
     [newSongs[index - 1], newSongs[index]] = [newSongs[index], newSongs[index - 1]];
-    const order = newSongs.map((s, i) => ({ id: s.id, position: i }));
-    setSongs(newSongs);
-    try {
-      await setlistsApi.reorderSongs(id, order);
-    } catch {
-      // Revert on error
-      setSongs(songs);
-      toast.error("Failed to reorder");
-    }
+    await persistSongOrder(newSongs);
   };
 
   const handleMoveDown = async (index: number) => {
     if (index === songs.length - 1 || !id) return;
     const newSongs = [...songs];
     [newSongs[index], newSongs[index + 1]] = [newSongs[index + 1], newSongs[index]];
-    const order = newSongs.map((s, i) => ({ id: s.id, position: i }));
-    setSongs(newSongs);
+    await persistSongOrder(newSongs);
+  };
+
+  const persistSongOrder = async (nextSongs: SetlistSongItem[]) => {
+    if (!id) return;
+    const previousSongs = songs;
+    const order = nextSongs.map((song, index) => ({ id: song.id, position: index }));
+    setSongs(nextSongs);
+
     try {
       await setlistsApi.reorderSongs(id, order);
     } catch {
-      setSongs(songs);
+      setSongs(previousSongs);
       toast.error("Failed to reorder");
     }
+  };
+
+  const handleDragStart = (songItemId: string) => {
+    setDraggedSongItemId(songItemId);
+    setDragOverSongItemId(songItemId);
+  };
+
+  const handleDropReorder = async (targetSongItemId: string) => {
+    if (!draggedSongItemId || draggedSongItemId === targetSongItemId) {
+      setDraggedSongItemId(null);
+      setDragOverSongItemId(null);
+      return;
+    }
+
+    const sourceIndex = songs.findIndex((song) => song.id === draggedSongItemId);
+    const targetIndex = songs.findIndex((song) => song.id === targetSongItemId);
+
+    if (sourceIndex === -1 || targetIndex === -1) {
+      setDraggedSongItemId(null);
+      setDragOverSongItemId(null);
+      return;
+    }
+
+    const nextSongs = [...songs];
+    const [movedSong] = nextSongs.splice(sourceIndex, 1);
+    nextSongs.splice(targetIndex, 0, movedSong);
+    setDraggedSongItemId(null);
+    setDragOverSongItemId(null);
+    await persistSongOrder(nextSongs);
   };
 
   const handleDeleteSetlist = async () => {
@@ -572,27 +633,53 @@ export function SetlistViewPage() {
                       liveMode !== "off" && idx === conductor.currentSong
                         ? "bg-[hsl(var(--secondary))]/10 ring-1 ring-inset ring-[hsl(var(--secondary))]/30"
                         : ""
-                    }`}
+                    } ${dragOverSongItemId === item.id ? "bg-[hsl(var(--secondary))]/5" : ""}`}
+                    onDragOver={(event) => {
+                      if (!canEdit) return;
+                      event.preventDefault();
+                      setDragOverSongItemId(item.id);
+                    }}
+                    onDrop={(event) => {
+                      if (!canEdit) return;
+                      event.preventDefault();
+                      void handleDropReorder(item.id);
+                    }}
+                    onDragEnd={() => {
+                      setDraggedSongItemId(null);
+                      setDragOverSongItemId(null);
+                    }}
                   >
-                {/* Reorder buttons */}
+                {/* Reorder controls */}
                 {canEdit && (
-                  <div className="flex flex-col gap-0.5">
+                  <div className="flex items-center gap-2">
                     <button
-                      onClick={() => handleMoveUp(idx)}
-                      disabled={idx === 0}
-                      className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] disabled:opacity-30"
-                      title="Move up"
+                      type="button"
+                      draggable
+                      onDragStart={() => handleDragStart(item.id)}
+                      className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] cursor-grab active:cursor-grabbing"
+                      title="Drag to reorder"
+                      aria-label={`Drag ${item.songTitle} to reorder`}
                     >
-                      ▲
+                      <GripVertical className="h-4 w-4" />
                     </button>
-                    <button
-                      onClick={() => handleMoveDown(idx)}
-                      disabled={idx === songs.length - 1}
-                      className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] disabled:opacity-30"
-                      title="Move down"
-                    >
-                      ▼
-                    </button>
+                    <div className="flex flex-col gap-0.5">
+                      <button
+                        onClick={() => void handleMoveUp(idx)}
+                        disabled={idx === 0}
+                        className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] disabled:opacity-30"
+                        title="Move up"
+                      >
+                        ▲
+                      </button>
+                      <button
+                        onClick={() => void handleMoveDown(idx)}
+                        disabled={idx === songs.length - 1}
+                        className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] disabled:opacity-30"
+                        title="Move down"
+                      >
+                        ▼
+                      </button>
+                    </div>
                   </div>
                 )}
 

@@ -5,7 +5,7 @@ import { ChordProEditor } from "@/components/songs/ChordProEditor";
 import { MemoryRouter } from "react-router-dom";
 import { SettingsPage } from "@/pages/settings/SettingsPage";
 
-expect.extend(toHaveNoViolations);
+expect.extend(toHaveNoViolations as Parameters<typeof expect.extend>[0]);
 
 vi.mock("@vpc-music/shared", () => ({
   CHORD_REGEX: /^[A-G][b#]?(?:m|min|maj|dim|aug|sus[24]?|add)?[2-9]?(?:\/[A-G][b#]?)?$/,

@@ -1,13 +1,18 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useParams, useNavigate, Link, useSearchParams, useBeforeUnload, useBlocker } from "react-router-dom";
-import { songsApi, variationsApi, type Song, type SongVariation } from "@/lib/api-client";
+import { songsApi, variationsApi, type DuplicateSongMatch, type Song, type SongVariation } from "@/lib/api-client";
 import { useAuth } from "@/contexts/AuthContext";
+import { useConnectivity } from "@/contexts/ConnectivityContext";
 import { ALL_KEYS, parseChordPro } from "@vpc-music/shared";
 import { toast } from "sonner";
 import { ArrowLeft, Save, Upload, Layers } from "lucide-react";
+import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { ChordProEditor } from "@/components/songs/ChordProEditor";
 import { ChordProRenderer } from "@/components/songs/ChordProRenderer";
+import { ArrangementBuilder } from "@/components/songs/ArrangementBuilder";
 import { TagInput } from "@/components/songs/TagInput";
+import { enqueueOfflineSongEdit, isOfflineRequestError, loadCachedSong, saveCachedSong } from "@/lib/offline-cache";
+import { buildArrangementContent, buildArrangementSummary, getArrangementSectionChoices, type ArrangementItem } from "@/utils/chordpro-arrangement";
 
 type BulkImportItem = {
   filename: string;
@@ -22,10 +27,22 @@ type ImportPreviewState = {
   sourceLabel: string;
 };
 
+type PendingEditInterruption =
+  | { type: "leave-page" }
+  | { type: "switch-variation"; variationId: string }
+  | { type: "replace-import"; files: File[] };
+
+type ConflictState = {
+  currentSong: Song;
+  pendingSongData: Partial<Song>;
+  fieldSelections: Record<string, "mine" | "server">;
+};
+
 export function SongEditPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { user, activeOrg } = useAuth();
+  const { isOnline, refreshPendingOfflineEditCount } = useConnectivity();
   const canEdit = user?.role === "owner" || activeOrg?.role === "admin" || activeOrg?.role === "musician";
   const [searchParams, setSearchParams] = useSearchParams();
   const isNew = !id;
@@ -51,6 +68,13 @@ export function SongEditPage() {
   const [bulkImportCurrentFile, setBulkImportCurrentFile] = useState("");
   const [isBulkImporting, setIsBulkImporting] = useState(false);
   const [importPreview, setImportPreview] = useState<ImportPreviewState | null>(null);
+  const [duplicateMatches, setDuplicateMatches] = useState<DuplicateSongMatch[]>([]);
+  const [checkingDuplicates, setCheckingDuplicates] = useState(false);
+  const [pendingInterruption, setPendingInterruption] = useState<PendingEditInterruption | null>(null);
+  const [conflictState, setConflictState] = useState<ConflictState | null>(null);
+  const [arrangementItems, setArrangementItems] = useState<ArrangementItem[]>([]);
+  const [arrangementVariationName, setArrangementVariationName] = useState("");
+  const [savingArrangement, setSavingArrangement] = useState(false);
   const allowNavigationRef = useRef(false);
   const formRef = useRef<HTMLFormElement>(null);
 
@@ -61,6 +85,15 @@ export function SongEditPage() {
   const currentVariation = useMemo(
     () => variations.find((variation) => variation.id === editingVariationId) ?? null,
     [variations, editingVariationId],
+  );
+  const arrangementSections = useMemo(() => getArrangementSectionChoices(content), [content]);
+  const arrangementSummary = useMemo(
+    () => buildArrangementSummary(arrangementItems, arrangementSections),
+    [arrangementItems, arrangementSections],
+  );
+  const arrangementPreviewContent = useMemo(
+    () => buildArrangementContent(content, arrangementItems),
+    [arrangementItems, content],
   );
   const initialFormState = useMemo(
     () => ({
@@ -112,19 +145,91 @@ export function SongEditPage() {
 
   const blocker = useBlocker(shouldWarnOnLeave);
 
+  const applySongFormValues = (song: Song) => {
+    setSongRecord(song);
+    setTitle(song.title || "");
+    setAka(song.aka || "");
+    setCategory(song.category || "");
+    setTempo(song.tempo ? String(song.tempo) : "");
+    setArtist(song.artist || "");
+    setShout(song.shout || "");
+    setTags(song.tags || "");
+    if (!editingVariationId) {
+      setKey(song.key || "");
+      setContent(song.content || "");
+    }
+    setIsDraft(!!song.isDraft);
+  };
+
+  const getPendingSongData = () => ({
+    title: title.trim(),
+    aka: aka.trim() || undefined,
+    category: category.trim() || undefined,
+    tempo: tempo ? Number(tempo) : undefined,
+    artist: artist.trim() || undefined,
+    shout: shout.trim() || undefined,
+    tags: tags.trim() || undefined,
+    isDraft,
+    ...(currentVariation ? {} : { key: key || undefined, content }),
+  });
+
+  const summarizeConflictValue = (value: unknown) => {
+    if (typeof value === "boolean") {
+      return value ? "Yes" : "No";
+    }
+
+    const text = value == null || value === "" ? "—" : String(value);
+    return text.length > 120 ? `${text.slice(0, 117)}...` : text;
+  };
+
+  const saveOfflineEdit = () => {
+    if (!id || !songRecord || !activeOrg?.id) {
+      return false;
+    }
+
+    if (currentVariation) {
+      toast.error("Offline queueing is currently limited to the main song version");
+      return false;
+    }
+
+    const pendingSongData = getPendingSongData();
+    enqueueOfflineSongEdit({
+      songId: id,
+      songTitle: title.trim() || songRecord.title,
+      organizationId: activeOrg.id,
+      lastKnownUpdatedAt: songRecord.updatedAt ?? null,
+      songData: pendingSongData,
+    });
+
+    const cachedSong: Song = {
+      ...songRecord,
+      ...pendingSongData,
+      updatedAt: songRecord.updatedAt || new Date().toISOString(),
+    };
+    saveCachedSong({ song: cachedSong, variations });
+    applySongFormValues(cachedSong);
+    refreshPendingOfflineEditCount();
+    toast.success("Song edit queued for sync when you reconnect");
+    allowNavigationRef.current = true;
+    navigate(`/songs/${id}`);
+    return true;
+  };
+
+  useEffect(() => {
+    setArrangementItems((current) => current.filter((item) => arrangementSections.some((section) => section.id === item.sectionId)));
+  }, [arrangementSections]);
+
+  useEffect(() => {
+    if (!arrangementVariationName.trim()) {
+      const baseTitle = title.trim() || songRecord?.title || "Song";
+      setArrangementVariationName(`${baseTitle} Arrangement`);
+    }
+  }, [arrangementVariationName, songRecord?.title, title]);
+
   useEffect(() => {
     if (blocker.state !== "blocked") return;
 
-    const shouldLeave = window.confirm(
-      "You have unsaved changes. Press OK to leave this page and discard them, or Cancel to stay here.",
-    );
-
-    if (shouldLeave) {
-      allowNavigationRef.current = true;
-      blocker.proceed();
-    } else {
-      blocker.reset();
-    }
+    setPendingInterruption({ type: "leave-page" });
   }, [blocker]);
 
   // Redirect observers away from edit pages
@@ -141,18 +246,21 @@ export function SongEditPage() {
       .get(id)
       .then((res) => {
         const s = res.song;
-        setSongRecord(s);
+        saveCachedSong(res);
         setVariations(res.variations || []);
-        setTitle(s.title);
-        setAka(s.aka || "");
-        setCategory(s.category || "");
-        setTempo(s.tempo ? String(s.tempo) : "");
-        setArtist(s.artist || "");
-        setShout(s.shout || "");
-        setTags(s.tags || "");
-        setIsDraft(!!s.isDraft);
+        applySongFormValues(s);
       })
-      .catch(() => toast.error("Song not found"))
+      .catch((error) => {
+        const cached = loadCachedSong(id);
+        if (cached && isOfflineRequestError(error)) {
+          setVariations(cached.response.variations || []);
+          applySongFormValues(cached.response.song);
+          toast.info("Loaded cached song for offline editing");
+          return;
+        }
+
+        toast.error("Song not found");
+      })
       .finally(() => setLoading(false));
   }, [id]);
 
@@ -169,28 +277,11 @@ export function SongEditPage() {
 
   const handleEditTargetChange = (variationId: string) => {
     if (shouldWarnOnLeave) {
-      const shouldSwitch = window.confirm(
-        "You have unsaved changes. Switch editing targets and discard them?",
-      );
-      if (!shouldSwitch) return;
+      setPendingInterruption({ type: "switch-variation", variationId });
+      return;
     }
 
-    const nextVariationId = variationId || null;
-    const nextVariation = nextVariationId
-      ? variations.find((variation) => variation.id === nextVariationId) ?? null
-      : null;
-
-    setEditingVariationId(nextVariation?.id ?? null);
-    setKey(nextVariation?.key || songRecord?.key || "");
-    setContent(nextVariation?.content || songRecord?.content || "");
-
-    const nextSearchParams = new URLSearchParams(searchParams);
-    if (nextVariation?.id) {
-      nextSearchParams.set("variation", nextVariation.id);
-    } else {
-      nextSearchParams.delete("variation");
-    }
-    setSearchParams(nextSearchParams, { replace: true });
+    continueVariationSwitch(variationId);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -201,18 +292,14 @@ export function SongEditPage() {
     }
     setSaving(true);
     try {
-      const sharedSongData: Partial<Song> = {
-        title: title.trim(),
-        aka: aka.trim() || undefined,
-        category: category.trim() || undefined,
-        tempo: tempo ? Number(tempo) : undefined,
-        artist: artist.trim() || undefined,
-        shout: shout.trim() || undefined,
-        tags: tags.trim() || undefined,
-        isDraft,
-      };
+      const sharedSongData = getPendingSongData();
 
       if (isNew) {
+        if (!isOnline) {
+          toast.error("Creating new songs requires a connection");
+          return;
+        }
+
         const data: Partial<Song> = {
           ...sharedSongData,
           key: key || undefined,
@@ -223,8 +310,16 @@ export function SongEditPage() {
         allowNavigationRef.current = true;
         navigate(`/songs/${res.song.id}`);
       } else if (currentVariation) {
+        if (!isOnline) {
+          toast.error("Variation edits require a connection right now");
+          return;
+        }
+
         await Promise.all([
-          songsApi.update(id!, sharedSongData),
+          songsApi.update(id!, {
+            ...sharedSongData,
+            lastKnownUpdatedAt: songRecord?.updatedAt,
+          }),
           variationsApi.update(id!, currentVariation.id, {
             content,
             key: key || undefined,
@@ -239,12 +334,37 @@ export function SongEditPage() {
           key: key || undefined,
           content,
         };
-        await songsApi.update(id!, data);
+        if (!isOnline || !navigator.onLine) {
+          if (saveOfflineEdit()) {
+            return;
+          }
+        }
+
+        await songsApi.update(id!, {
+          ...data,
+          lastKnownUpdatedAt: songRecord?.updatedAt,
+        });
         toast.success("Song updated!");
         allowNavigationRef.current = true;
         navigate(`/songs/${id}`);
       }
     } catch (err: any) {
+      if (!isNew && !currentVariation && isOfflineRequestError(err) && saveOfflineEdit()) {
+        return;
+      }
+
+      if (!isNew && !currentVariation && err?.status === 409 && err?.body?.currentSong) {
+        const pendingSongData = getPendingSongData();
+        const changedFields = Object.keys(pendingSongData).filter((field) => pendingSongData[field as keyof typeof pendingSongData] !== undefined);
+        setConflictState({
+          currentSong: err.body.currentSong,
+          pendingSongData,
+          fieldSelections: Object.fromEntries(changedFields.map((field) => [field, "mine"])),
+        });
+        toast.error("This song changed since you opened it. Review the merge options.");
+        return;
+      }
+
       toast.error(err.message || "Failed to save");
     } finally {
       setSaving(false);
@@ -307,11 +427,184 @@ export function SongEditPage() {
     setImportPreview({ filename, sourceLabel });
   };
 
-  const confirmImportReplacement = () => {
-    if (!isDirty) return true;
-    return window.confirm(
-      "Importing a file will replace the current unsaved form values. Continue?",
-    );
+  const continueVariationSwitch = (variationId: string) => {
+    const nextVariationId = variationId || null;
+    const nextVariation = nextVariationId
+      ? variations.find((variation) => variation.id === nextVariationId) ?? null
+      : null;
+
+    setEditingVariationId(nextVariation?.id ?? null);
+    setKey(nextVariation?.key || songRecord?.key || "");
+    setContent(nextVariation?.content || songRecord?.content || "");
+
+    const nextSearchParams = new URLSearchParams(searchParams);
+    if (nextVariation?.id) {
+      nextSearchParams.set("variation", nextVariation.id);
+    } else {
+      nextSearchParams.delete("variation");
+    }
+    setSearchParams(nextSearchParams, { replace: true });
+  };
+
+  const handleAddArrangementSection = (sectionId: string) => {
+    setArrangementItems((current) => [
+      ...current,
+      { id: `arrangement-${Date.now()}-${current.length}`, sectionId, repeatCount: 1 },
+    ]);
+  };
+
+  const handleMoveArrangementItem = (itemId: string, direction: -1 | 1) => {
+    setArrangementItems((current) => {
+      const index = current.findIndex((item) => item.id === itemId);
+      const nextIndex = index + direction;
+      if (index < 0 || nextIndex < 0 || nextIndex >= current.length) {
+        return current;
+      }
+
+      const next = [...current];
+      const [moved] = next.splice(index, 1);
+      next.splice(nextIndex, 0, moved);
+      return next;
+    });
+  };
+
+  const handleChangeArrangementRepeat = (itemId: string, delta: -1 | 1) => {
+    setArrangementItems((current) => current.map((item) => (
+      item.id === itemId
+        ? { ...item, repeatCount: Math.max(1, item.repeatCount + delta) }
+        : item
+    )));
+  };
+
+  const handleRemoveArrangementItem = (itemId: string) => {
+    setArrangementItems((current) => current.filter((item) => item.id !== itemId));
+  };
+
+  const handleSaveArrangementVariation = async () => {
+    if (!id) {
+      toast.error("Save the song before creating an arrangement variation");
+      return;
+    }
+    if (!isOnline) {
+      toast.error("Arrangement variations require a connection right now");
+      return;
+    }
+    if (arrangementItems.length === 0) {
+      toast.error("Add at least one section to the arrangement first");
+      return;
+    }
+    if (!arrangementVariationName.trim()) {
+      toast.error("Variation name is required");
+      return;
+    }
+
+    setSavingArrangement(true);
+    try {
+      const response = await variationsApi.create(id, {
+        name: arrangementVariationName.trim(),
+        key: key || undefined,
+        content: arrangementPreviewContent,
+      });
+      setVariations((current) => [...current, response.variation]);
+      toast.success(`Created arrangement variation: ${response.variation.name}`);
+      allowNavigationRef.current = true;
+      navigate(`/songs/${id}?variation=${response.variation.id}`);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to save arrangement variation");
+    } finally {
+      setSavingArrangement(false);
+    }
+  };
+
+  const processImportFiles = async (files: File[]) => {
+    if (files.length === 0) {
+      return;
+    }
+
+    if (files.length > 1) {
+      await handleBulkImport(files);
+      return;
+    }
+
+    const [file] = files;
+    const ext = getFileExtension(file.name);
+
+    if (ext === "cho" || ext === "chordpro" || ext === "chopro") {
+      const text = await readFileText(file);
+      const parsed = parseChordPro(text);
+      applyImportPreview({
+        filename: file.name,
+        sourceLabel: "ChordPro",
+        chordPro: text,
+        previewMetadata: {
+          title: parsed.directives.title || parsed.directives.t || file.name.replace(/\.(cho|chordpro|chopro)$/i, ""),
+          artist: parsed.directives.artist || parsed.directives.a || null,
+          key: parsed.directives.key || parsed.directives.k || null,
+          tempo: /^\d+$/.test(parsed.directives.tempo || "") ? Number(parsed.directives.tempo) : null,
+        },
+      });
+      toast.success("ChordPro file loaded — review the preview and save when ready");
+      return;
+    }
+
+    if (ext === "pdf") {
+      try {
+        toast.info("Processing PDF — this may take a moment…");
+        const preview = await songsApi.previewImportPdf(file);
+        applyImportPreview({
+          filename: file.name,
+          sourceLabel: "PDF",
+          chordPro: preview.chordPro,
+          previewMetadata: preview.metadata,
+        });
+        toast.success("PDF imported — review the preview and save when ready");
+      } catch (err: any) {
+        toast.error(err.message || "PDF import failed");
+      }
+      return;
+    }
+
+    if (ext === "onsong" || ext === "xml") {
+      try {
+        const text = await readFileText(file);
+        const preview = await songsApi.previewImportOnSong({
+          filename: file.name,
+          content: text,
+        });
+        applyImportPreview({
+          filename: file.name,
+          sourceLabel: ext === "xml" ? "OpenSong XML" : "OnSong",
+          chordPro: preview.chordPro,
+          previewMetadata: preview.metadata,
+        });
+        toast.success("OnSong/OpenSong file imported — review the preview and save when ready");
+      } catch (err: any) {
+        toast.error(err.message || "Import failed");
+      }
+      return;
+    }
+
+    if (ext === "chrd" || ext === "txt") {
+      try {
+        const text = await readFileText(file);
+        const preview = await songsApi.previewImportChrd({
+          filename: file.name,
+          content: text,
+        });
+        applyImportPreview({
+          filename: file.name,
+          sourceLabel: ext === "txt" ? "Plain text / .chrd conversion" : ".chrd",
+          chordPro: preview.chordPro,
+          previewMetadata: preview.metadata,
+        });
+        toast.success("File imported — review the preview and save when ready");
+      } catch (err: any) {
+        toast.error(err.message || "Import failed");
+      }
+      return;
+    }
+
+    toast.error("Unsupported file format. Use .cho, .chordpro, .chopro, .onsong, .xml, .chrd, .txt, or .pdf");
   };
 
   const importFileForBulk = async (file: File) => {
@@ -408,87 +701,149 @@ export function SongEditPage() {
     const files = Array.from(e.target.files || []);
     if (files.length === 0) return;
 
-    if (files.length > 1) {
-      await handleBulkImport(files);
+    if (isDirty) {
+      setPendingInterruption({ type: "replace-import", files });
       e.target.value = "";
       return;
     }
 
-    const [file] = files;
-    const ext = getFileExtension(file.name);
-
-    if (!confirmImportReplacement()) {
-      e.target.value = "";
-      return;
-    }
-
-    if (ext === "cho" || ext === "chordpro" || ext === "chopro") {
-      const text = await readFileText(file);
-      const parsed = parseChordPro(text);
-      applyImportPreview({
-        filename: file.name,
-        sourceLabel: "ChordPro",
-        chordPro: text,
-        previewMetadata: {
-          title: parsed.directives.title || parsed.directives.t || file.name.replace(/\.(cho|chordpro|chopro)$/i, ""),
-          artist: parsed.directives.artist || parsed.directives.a || null,
-          key: parsed.directives.key || parsed.directives.k || null,
-          tempo: /^\d+$/.test(parsed.directives.tempo || "") ? Number(parsed.directives.tempo) : null,
-        },
-      });
-      toast.success("ChordPro file loaded — review the preview and save when ready");
-    } else if (ext === "pdf") {
-      try {
-        toast.info("Processing PDF — this may take a moment…");
-        const preview = await songsApi.previewImportPdf(file);
-        applyImportPreview({
-          filename: file.name,
-          sourceLabel: "PDF",
-          chordPro: preview.chordPro,
-          previewMetadata: preview.metadata,
-        });
-        toast.success("PDF imported — review the preview and save when ready");
-      } catch (err: any) {
-        toast.error(err.message || "PDF import failed");
-      }
-    } else if (ext === "onsong" || ext === "xml") {
-      try {
-        const text = await readFileText(file);
-        const preview = await songsApi.previewImportOnSong({
-          filename: file.name,
-          content: text,
-        });
-        applyImportPreview({
-          filename: file.name,
-          sourceLabel: ext === "xml" ? "OpenSong XML" : "OnSong",
-          chordPro: preview.chordPro,
-          previewMetadata: preview.metadata,
-        });
-        toast.success("OnSong/OpenSong file imported — review the preview and save when ready");
-      } catch (err: any) {
-        toast.error(err.message || "Import failed");
-      }
-    } else if (ext === "chrd" || ext === "txt") {
-      try {
-        const text = await readFileText(file);
-        const preview = await songsApi.previewImportChrd({
-          filename: file.name,
-          content: text,
-        });
-        applyImportPreview({
-          filename: file.name,
-          sourceLabel: ext === "txt" ? "Plain text / .chrd conversion" : ".chrd",
-          chordPro: preview.chordPro,
-          previewMetadata: preview.metadata,
-        });
-        toast.success("File imported — review the preview and save when ready");
-      } catch (err: any) {
-        toast.error(err.message || "Import failed");
-      }
-    } else {
-      toast.error("Unsupported file format. Use .cho, .chordpro, .chopro, .onsong, .xml, .chrd, .txt, or .pdf");
-    }
+    await processImportFiles(files);
     e.target.value = ""; // reset file input
+  };
+
+  useEffect(() => {
+    const normalizedTitle = title.trim();
+    const normalizedContent = content.trim();
+    const enoughContent = normalizedContent.split(/\s+/).filter(Boolean).length >= 8;
+
+    if ((!normalizedTitle || normalizedTitle.length < 3) && !enoughContent) {
+      setDuplicateMatches([]);
+      setCheckingDuplicates(false);
+      return;
+    }
+
+    let cancelled = false;
+    setCheckingDuplicates(true);
+
+    const timeout = window.setTimeout(() => {
+      songsApi
+        .findDuplicates({
+          title: normalizedTitle || undefined,
+          content: enoughContent ? normalizedContent : undefined,
+          excludeSongId: id,
+        })
+        .then((res) => {
+          if (!cancelled) {
+            setDuplicateMatches(res.matches);
+          }
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setDuplicateMatches([]);
+          }
+        })
+        .finally(() => {
+          if (!cancelled) {
+            setCheckingDuplicates(false);
+          }
+        });
+    }, 350);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeout);
+    };
+  }, [content, id, title]);
+
+  const handleConfirmPendingInterruption = async () => {
+    if (!pendingInterruption) {
+      return;
+    }
+
+    if (pendingInterruption.type === "leave-page") {
+      allowNavigationRef.current = true;
+      setPendingInterruption(null);
+      blocker.proceed?.();
+      return;
+    }
+
+    if (pendingInterruption.type === "switch-variation") {
+      continueVariationSwitch(pendingInterruption.variationId);
+      setPendingInterruption(null);
+      return;
+    }
+
+    if (pendingInterruption.type === "replace-import") {
+      const files = pendingInterruption.files;
+      setPendingInterruption(null);
+      await processImportFiles(files);
+    }
+  };
+
+  const handleClosePendingInterruption = () => {
+    if (pendingInterruption?.type === "leave-page" && blocker.state === "blocked") {
+      blocker.reset();
+    }
+
+    setPendingInterruption(null);
+  };
+
+  const handleConflictFieldSelection = (field: string, selection: "mine" | "server") => {
+    setConflictState((current) => (
+      current
+        ? {
+            ...current,
+            fieldSelections: {
+              ...current.fieldSelections,
+              [field]: selection,
+            },
+          }
+        : current
+    ));
+  };
+
+  const handleUseServerVersion = () => {
+    if (!conflictState) {
+      return;
+    }
+
+    applySongFormValues(conflictState.currentSong);
+    setConflictState(null);
+    toast.info("Loaded the latest server version into the editor");
+  };
+
+  const handleSaveMergedConflict = async (forceMine = false) => {
+    if (!id || !conflictState) {
+      return;
+    }
+
+    const mergedPayload = forceMine
+      ? conflictState.pendingSongData
+      : Object.fromEntries(
+          Object.entries(conflictState.fieldSelections).map(([field, selection]) => {
+            const mineValue = conflictState.pendingSongData[field as keyof Song];
+            const serverValue = conflictState.currentSong[field as keyof Song];
+            return [field, selection === "mine" ? mineValue : serverValue];
+          }),
+        );
+
+    setSaving(true);
+    try {
+      const response = await songsApi.update(id, {
+        ...mergedPayload,
+        forceOverwrite: true,
+      });
+      saveCachedSong({ song: response.song, variations });
+      applySongFormValues(response.song);
+      setConflictState(null);
+      toast.success(forceMine ? "Overwrote the song with your changes" : "Merged and saved song changes");
+      allowNavigationRef.current = true;
+      navigate(`/songs/${id}`);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to resolve conflict");
+    } finally {
+      setSaving(false);
+    }
   };
 
   if (loading) {
@@ -652,6 +1007,50 @@ export function SongEditPage() {
           </div>
         </div>
 
+        {(checkingDuplicates || duplicateMatches.length > 0) && (
+          <div className="card card-body space-y-3" data-testid="duplicate-detection-card">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h3 className="text-sm font-semibold text-[hsl(var(--foreground))]">Possible duplicates</h3>
+                <p className="text-xs text-[hsl(var(--muted-foreground))]">
+                  Check these matches before saving a second copy of the same song.
+                </p>
+              </div>
+              {checkingDuplicates && <span className="badge-muted">Checking…</span>}
+            </div>
+
+            {duplicateMatches.length === 0 ? (
+              <p className="text-xs text-[hsl(var(--muted-foreground))]">No close matches found yet.</p>
+            ) : (
+              <ul className="space-y-2">
+                {duplicateMatches.map((match) => (
+                  <li key={match.id} className="rounded-2xl border border-[hsl(var(--border))] px-3 py-3">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div className="space-y-1">
+                        <Link to={`/songs/${match.id}`} className="font-medium text-[hsl(var(--foreground))] hover:text-[hsl(var(--secondary))]">
+                          {match.title}
+                        </Link>
+                        <div className="flex flex-wrap items-center gap-2 text-xs text-[hsl(var(--muted-foreground))]">
+                          <span className="badge-muted">{Math.round(match.overallScore * 100)}% match</span>
+                          <span>Matched on {match.matchedOn.join(" + ")}</span>
+                          {match.artist && <span>· {match.artist}</span>}
+                          {match.key && <span>· Key {match.key}</span>}
+                        </div>
+                        {match.aka && (
+                          <p className="text-xs text-[hsl(var(--muted-foreground))]">AKA: {match.aka}</p>
+                        )}
+                      </div>
+                      <Link to={`/songs/${match.id}`} className="btn-outline btn-sm">
+                        Review song
+                      </Link>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+
         {/* Import */}
         <div className="flex items-center gap-3">
           <label className="btn-outline cursor-pointer">
@@ -763,6 +1162,36 @@ export function SongEditPage() {
           onSave={() => formRef.current?.requestSubmit()}
         />
 
+        {!isNew && arrangementSections.length > 0 && (
+          <div className="space-y-4">
+            <ArrangementBuilder
+              sections={arrangementSections}
+              items={arrangementItems}
+              summary={arrangementSummary}
+              variationName={arrangementVariationName}
+              onVariationNameChange={setArrangementVariationName}
+              onAddSection={handleAddArrangementSection}
+              onMoveItem={handleMoveArrangementItem}
+              onChangeRepeat={handleChangeArrangementRepeat}
+              onRemoveItem={handleRemoveArrangementItem}
+              onSaveVariation={() => void handleSaveArrangementVariation()}
+              saving={savingArrangement}
+            />
+
+            {arrangementItems.length > 0 && (
+              <div className="card card-body space-y-3" data-testid="arrangement-preview-card">
+                <div className="space-y-1">
+                  <h3 className="text-sm font-semibold text-[hsl(var(--foreground))]">Arrangement preview</h3>
+                  <p className="text-xs text-[hsl(var(--muted-foreground))]">{arrangementSummary}</p>
+                </div>
+                <div className="rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-4">
+                  <ChordProRenderer content={arrangementPreviewContent} songKey={key || undefined} />
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Draft toggle */}
         <label className="flex items-center gap-2 text-sm text-[hsl(var(--foreground))]">
           <input
@@ -792,6 +1221,89 @@ export function SongEditPage() {
           </Link>
         </div>
       </form>
+
+      <ConfirmDialog
+        open={!!pendingInterruption}
+        title={
+          pendingInterruption?.type === "leave-page"
+            ? "Discard unsaved changes?"
+            : pendingInterruption?.type === "switch-variation"
+              ? "Switch editing targets?"
+              : "Replace the current draft with this import?"
+        }
+        description={
+          pendingInterruption?.type === "leave-page"
+            ? "You have unsaved changes. Leave this page and discard them, or stay here to keep editing."
+            : pendingInterruption?.type === "switch-variation"
+              ? "You have unsaved changes. Switching editing targets will discard them."
+              : "Importing this file will replace the current unsaved form values."
+        }
+        confirmLabel={pendingInterruption?.type === "leave-page" ? "Leave page" : pendingInterruption?.type === "switch-variation" ? "Switch target" : "Replace with import"}
+        cancelLabel="Stay here"
+        destructive={pendingInterruption?.type !== "replace-import"}
+        onConfirm={() => void handleConfirmPendingInterruption()}
+        onClose={handleClosePendingInterruption}
+      />
+
+      {conflictState && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="song-conflict-title">
+          <div className="modal-content max-w-3xl space-y-4">
+            <div className="space-y-1">
+              <h3 id="song-conflict-title" className="text-lg font-semibold text-[hsl(var(--foreground))]">
+                Resolve song edit conflict
+              </h3>
+              <p className="text-sm text-[hsl(var(--muted-foreground))]">
+                Someone else saved this song after you opened it. Compare each changed field, choose which version to keep, then save the merged copy.
+              </p>
+            </div>
+
+            <div className="max-h-[60vh] space-y-3 overflow-y-auto pr-1">
+              {Object.keys(conflictState.fieldSelections).map((field) => (
+                <div key={field} className="rounded-2xl border border-[hsl(var(--border))] p-3">
+                  <div className="mb-2 flex items-center justify-between gap-3">
+                    <span className="text-sm font-medium capitalize text-[hsl(var(--foreground))]">{field}</span>
+                    <span className="badge-muted">{conflictState.fieldSelections[field] === "mine" ? "Keeping mine" : "Using server"}</span>
+                  </div>
+
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <button
+                      type="button"
+                      className={`rounded-xl border px-3 py-3 text-left ${conflictState.fieldSelections[field] === "mine" ? "border-[hsl(var(--secondary))] bg-[hsl(var(--secondary))]/10" : "border-[hsl(var(--border))]"}`}
+                      onClick={() => handleConflictFieldSelection(field, "mine")}
+                    >
+                      <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-[hsl(var(--muted-foreground))]">Your edit</div>
+                      <div className="text-sm text-[hsl(var(--foreground))] whitespace-pre-wrap">{summarizeConflictValue(conflictState.pendingSongData[field as keyof Song])}</div>
+                    </button>
+                    <button
+                      type="button"
+                      className={`rounded-xl border px-3 py-3 text-left ${conflictState.fieldSelections[field] === "server" ? "border-[hsl(var(--secondary))] bg-[hsl(var(--secondary))]/10" : "border-[hsl(var(--border))]"}`}
+                      onClick={() => handleConflictFieldSelection(field, "server")}
+                    >
+                      <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-[hsl(var(--muted-foreground))]">Latest server version</div>
+                      <div className="text-sm text-[hsl(var(--foreground))] whitespace-pre-wrap">{summarizeConflictValue(conflictState.currentSong[field as keyof Song])}</div>
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex flex-wrap justify-end gap-3">
+              <button type="button" className="btn-outline" onClick={() => setConflictState(null)}>
+                Close
+              </button>
+              <button type="button" className="btn-outline" onClick={handleUseServerVersion}>
+                Load server version
+              </button>
+              <button type="button" className="btn-outline" onClick={() => void handleSaveMergedConflict(true)} disabled={saving}>
+                Overwrite with my changes
+              </button>
+              <button type="button" className="btn-primary" onClick={() => void handleSaveMergedConflict(false)} disabled={saving}>
+                Save merged copy
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

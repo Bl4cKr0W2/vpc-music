@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import { SongEditPage } from "@/pages/songs/SongEditPage";
@@ -8,6 +8,7 @@ import { SongEditPage } from "@/pages/songs/SongEditPage";
 const mockGet = vi.fn();
 const mockCreate = vi.fn();
 const mockUpdate = vi.fn();
+const mockVariationCreate = vi.fn();
 const mockVariationUpdate = vi.fn();
 const mockNavigate = vi.fn();
 const mockImportChrd = vi.fn();
@@ -16,12 +17,14 @@ const mockImportOnSong = vi.fn();
 const mockPreviewImportOnSong = vi.fn();
 const mockImportPdf = vi.fn();
 const mockPreviewImportPdf = vi.fn();
+const mockFindDuplicates = vi.fn();
 
 vi.mock("@/lib/api-client", () => ({
   songsApi: {
     get: (...args: any[]) => mockGet(...args),
     create: (...args: any[]) => mockCreate(...args),
     update: (...args: any[]) => mockUpdate(...args),
+    findDuplicates: (...args: any[]) => mockFindDuplicates(...args),
     getTags: () => Promise.resolve({ tags: ["worship", "hymn", "contemporary"] }),
     importChrd: (...args: any[]) => mockImportChrd(...args),
     previewImportChrd: (...args: any[]) => mockPreviewImportChrd(...args),
@@ -31,6 +34,7 @@ vi.mock("@/lib/api-client", () => ({
     previewImportPdf: (...args: any[]) => mockPreviewImportPdf(...args),
   },
   variationsApi: {
+    create: (...args: any[]) => mockVariationCreate(...args),
     update: (...args: any[]) => mockVariationUpdate(...args),
   },
 }));
@@ -76,6 +80,30 @@ let mockAuthValue: any = {
 };
 vi.mock("@/contexts/AuthContext", () => ({
   useAuth: () => mockAuthValue,
+}));
+
+const mockRefreshPendingOfflineEditCount = vi.fn();
+let mockConnectivityValue = {
+  isOnline: true,
+  syncingOfflineEdits: false,
+  pendingOfflineEditCount: 0,
+  refreshPendingOfflineEditCount: mockRefreshPendingOfflineEditCount,
+};
+
+vi.mock("@/contexts/ConnectivityContext", () => ({
+  useConnectivity: () => mockConnectivityValue,
+}));
+
+const mockEnqueueOfflineSongEdit = vi.fn();
+const mockSaveCachedSong = vi.fn();
+const mockLoadCachedSong = vi.fn();
+const mockIsOfflineRequestError = vi.fn();
+
+vi.mock("@/lib/offline-cache", () => ({
+  enqueueOfflineSongEdit: (...args: any[]) => mockEnqueueOfflineSongEdit(...args),
+  saveCachedSong: (...args: any[]) => mockSaveCachedSong(...args),
+  loadCachedSong: (...args: any[]) => mockLoadCachedSong(...args),
+  isOfflineRequestError: (...args: any[]) => mockIsOfflineRequestError(...args),
 }));
 
 function renderNewSong() {
@@ -125,7 +153,6 @@ function renderEditSongVariation(id = "song-1", variationId = "v1") {
 describe("SongEditPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     mockImportChrd.mockResolvedValue({ song: { id: "imported-chrd" } });
     mockPreviewImportChrd.mockResolvedValue({
       chordPro: "{title: Test}\n{key: G}\n\n[G]Hello",
@@ -141,6 +168,16 @@ describe("SongEditPage", () => {
       chordPro: "{title: PDF Song}\n{tempo: 88}\n\n[C]Hello",
       metadata: { title: "PDF Song", key: null, artist: null, tempo: 88 },
     });
+    mockVariationCreate.mockResolvedValue({ variation: { id: "arr-1", name: "Sunday arrangement", content: "{comment: Chorus}" } });
+    mockFindDuplicates.mockResolvedValue({ matches: [] });
+    mockConnectivityValue = {
+      isOnline: true,
+      syncingOfflineEdits: false,
+      pendingOfflineEditCount: 0,
+      refreshPendingOfflineEditCount: mockRefreshPendingOfflineEditCount,
+    };
+    mockLoadCachedSong.mockReturnValue(null);
+    mockIsOfflineRequestError.mockReturnValue(false);
   });
 
   // ===================== POSITIVE — New Song =====================
@@ -377,6 +414,54 @@ describe("SongEditPage", () => {
         expect(mockNavigate).toHaveBeenCalledWith("/songs/song-1");
       });
     });
+
+    it("renders the arrangement builder for existing songs with named sections", async () => {
+      mockGet.mockResolvedValue({
+        song: {
+          ...existingSong,
+          content: `{title: Amazing Grace}\n{artist: Newton}\n{key: G}\n\n{comment: Verse 1}\n[G]Amazing grace\n\n{comment: Chorus}\n[C]I once was lost`,
+        },
+        variations: [],
+      });
+      renderEditSong();
+
+      await waitFor(() => {
+        const builder = screen.getByTestId("arrangement-builder");
+        expect(builder).toBeInTheDocument();
+        expect(within(builder).getByRole("button", { name: /^verse 1$/i })).toBeInTheDocument();
+        expect(within(builder).getByRole("button", { name: /^chorus$/i })).toBeInTheDocument();
+      });
+    });
+
+    it("saves an arrangement as a new variation with repeat markers", async () => {
+      mockGet.mockResolvedValue({
+        song: {
+          ...existingSong,
+          content: `{title: Amazing Grace}\n{artist: Newton}\n{key: G}\n\n{comment: Verse 1}\n[G]Amazing grace\n\n{comment: Chorus}\n[C]I once was lost`,
+        },
+        variations: [],
+      });
+      mockVariationCreate.mockResolvedValue({ variation: { id: "arr-1", name: "Sunday arrangement", content: "{comment: Chorus ×2}" } });
+      renderEditSong();
+      const user = userEvent.setup();
+
+      const builder = await screen.findByTestId("arrangement-builder");
+      await user.click(within(builder).getByRole("button", { name: /^verse 1$/i }));
+      await user.click(within(builder).getByRole("button", { name: /^chorus$/i }));
+      await user.click(within(builder).getByRole("button", { name: /increase repeats for chorus/i }));
+      await user.clear(within(builder).getByPlaceholderText("Sunday arrangement"));
+      await user.type(within(builder).getByPlaceholderText("Sunday arrangement"), "Sunday arrangement");
+      await user.click(within(builder).getByRole("button", { name: /save arrangement as variation/i }));
+
+      await waitFor(() => {
+        expect(mockVariationCreate).toHaveBeenCalledWith("song-1", expect.objectContaining({
+          key: "G",
+          content: expect.stringContaining("{comment: Chorus ×2}"),
+        }));
+        expect(mockVariationCreate.mock.calls[0][1].name).toContain("Sunday arrangement");
+        expect(mockNavigate).toHaveBeenCalledWith("/songs/song-1?variation=arr-1");
+      });
+    });
   });
 
   // ===================== NEGATIVE =====================
@@ -446,16 +531,13 @@ describe("SongEditPage", () => {
     });
 
     it("prompts before cancel navigation when there are unsaved changes", async () => {
-      vi.spyOn(window, "confirm").mockReturnValue(false);
       renderNewSong();
       const user = userEvent.setup();
 
       await user.type(screen.getByPlaceholderText("Song title"), "Unsaved title");
       await user.click(screen.getByRole("link", { name: /cancel/i }));
 
-      expect(window.confirm).toHaveBeenCalledWith(
-        "You have unsaved changes. Press OK to leave this page and discard them, or Cancel to stay here.",
-      );
+      expect(screen.getByRole("dialog", { name: /discard unsaved changes/i })).toBeInTheDocument();
       expect(screen.queryByText("Songs List")).not.toBeInTheDocument();
       expect(screen.getByText("New Song")).toBeInTheDocument();
     });
@@ -480,7 +562,6 @@ describe("SongEditPage", () => {
       };
 
       mockGet.mockResolvedValue({ song: existingSong, variations: [existingVariation] });
-      vi.spyOn(window, "confirm").mockReturnValue(false);
       renderEditSongVariation();
       const user = userEvent.setup();
 
@@ -488,10 +569,112 @@ describe("SongEditPage", () => {
       await user.type(editor, " changed");
       await user.selectOptions(screen.getByLabelText(/working on/i), "");
 
-      expect(window.confirm).toHaveBeenCalledWith(
-        "You have unsaved changes. Switch editing targets and discard them?",
-      );
+      expect(screen.getByRole("dialog", { name: /switch editing targets/i })).toBeInTheDocument();
       expect(screen.getByDisplayValue("Acoustic (C)")).toBeInTheDocument();
+    });
+
+    it("shows possible duplicate matches while editing", async () => {
+      mockFindDuplicates.mockResolvedValue({
+        matches: [
+          {
+            id: "song-2",
+            title: "Amazing Grace",
+            aka: "Grace Song",
+            artist: "Newton",
+            key: "G",
+            overallScore: 0.92,
+            titleScore: 0.92,
+            lyricScore: 0.4,
+            matchedOn: ["title", "lyrics"],
+          },
+        ],
+      });
+
+      renderNewSong();
+      const user = userEvent.setup();
+
+      await user.type(screen.getByPlaceholderText("Song title"), "Amazing Grace");
+      await user.type(screen.getByTestId("chordpro-editor"), "Amazing grace how sweet the sound that saved a wretch like me");
+
+      await waitFor(() => {
+        expect(mockFindDuplicates).toHaveBeenCalled();
+        expect(screen.getByTestId("duplicate-detection-card")).toBeInTheDocument();
+        expect(screen.getByText(/92% match/i)).toBeInTheDocument();
+      });
+    });
+
+    it("queues an existing song edit when offline", async () => {
+      const existingSong = {
+        id: "song-1",
+        title: "Amazing Grace",
+        key: "G",
+        tempo: 72,
+        artist: "Newton",
+        tags: "hymn",
+        content: "[G]Amazing",
+        isDraft: false,
+        updatedAt: "2026-03-16T10:00:00.000Z",
+      };
+
+      mockConnectivityValue.isOnline = false;
+      mockGet.mockResolvedValue({ song: existingSong, variations: [] });
+      renderEditSong();
+      const user = userEvent.setup();
+
+      await screen.findByDisplayValue("Amazing Grace");
+      await user.clear(screen.getByPlaceholderText("Song title"));
+      await user.type(screen.getByPlaceholderText("Song title"), "Amazing Grace Updated");
+      await user.click(screen.getByRole("button", { name: /update song/i }));
+
+      await waitFor(() => {
+        expect(mockEnqueueOfflineSongEdit).toHaveBeenCalledWith(expect.objectContaining({
+          songId: "song-1",
+          organizationId: "org1",
+        }));
+        expect(mockRefreshPendingOfflineEditCount).toHaveBeenCalled();
+        expect(mockNavigate).toHaveBeenCalledWith("/songs/song-1");
+      });
+    });
+
+    it("shows a merge dialog when the server reports a conflict", async () => {
+      const existingSong = {
+        id: "song-1",
+        title: "Amazing Grace",
+        key: "G",
+        tempo: 72,
+        artist: "Newton",
+        tags: "hymn",
+        content: "[G]Amazing",
+        isDraft: false,
+        updatedAt: "2026-03-16T10:00:00.000Z",
+      };
+
+      mockGet.mockResolvedValue({ song: existingSong, variations: [] });
+      mockUpdate.mockRejectedValue({
+        status: 409,
+        message: "Conflict",
+        body: {
+          currentSong: {
+            ...existingSong,
+            title: "Amazing Grace Server",
+            updatedAt: "2026-03-16T11:00:00.000Z",
+          },
+        },
+      });
+
+      renderEditSong();
+      const user = userEvent.setup();
+
+      await screen.findByDisplayValue("Amazing Grace");
+      await user.clear(screen.getByPlaceholderText("Song title"));
+      await user.type(screen.getByPlaceholderText("Song title"), "Amazing Grace Local");
+      await user.click(screen.getByRole("button", { name: /update song/i }));
+
+      await waitFor(() => {
+        expect(screen.getByRole("dialog", { name: /resolve song edit conflict/i })).toBeInTheDocument();
+        expect(screen.getByText("Amazing Grace Local")).toBeInTheDocument();
+        expect(screen.getByText("Amazing Grace Server")).toBeInTheDocument();
+      });
     });
   });
 

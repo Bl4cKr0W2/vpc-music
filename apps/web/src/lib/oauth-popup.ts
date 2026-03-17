@@ -45,6 +45,8 @@ export function openOAuthPopup(provider: "google"): Promise<OAuthResult> {
       return;
     }
 
+    const activePopup = popup;
+
     function onMessage(event: MessageEvent) {
       if (!trustedOrigins.has(event.origin)) return;
       if (event.data?.type !== "VPC_OAUTH_CALLBACK") return;
@@ -55,7 +57,7 @@ export function openOAuthPopup(provider: "google"): Promise<OAuthResult> {
 
     function onClose() {
       const timer = setInterval(() => {
-        if (popup.closed) {
+        if (activePopup.closed) {
           clearInterval(timer);
           cleanup();
           resolve({ success: false });

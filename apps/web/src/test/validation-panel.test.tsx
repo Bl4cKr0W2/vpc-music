@@ -91,4 +91,14 @@ describe("ValidationPanel", () => {
     const rows = screen.getAllByTestId("validation-issue");
     expect(rows.some((r) => r.textContent?.includes("Duplicate"))).toBe(true);
   });
+
+  it("renders inline fix buttons when apply handlers are provided", async () => {
+    const user = userEvent.setup();
+    const onApplyFix = vi.fn();
+    render(<ValidationPanel source="[g / b]Amazing grace" onApplyFix={onApplyFix} />);
+    const fixButton = screen.getByTestId("validation-fix-btn");
+    expect(fixButton).toHaveTextContent("Use [G/B]");
+    await user.click(fixButton);
+    expect(onApplyFix).toHaveBeenCalledTimes(1);
+  });
 });

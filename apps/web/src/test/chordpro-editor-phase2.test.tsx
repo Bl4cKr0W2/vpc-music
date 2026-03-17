@@ -168,6 +168,42 @@ describe("ChordProEditor — Phase 2 features", () => {
       renderEditor({ value: "{title: Test}\nJust lyrics" });
       expect(screen.queryByTestId("section-nav-btn")).not.toBeInTheDocument();
     });
+
+    it("renders the structured section organizer", () => {
+      renderEditor();
+      expect(screen.getByTestId("section-organizer")).toBeInTheDocument();
+      expect(screen.getAllByTestId("section-organizer-item").length).toBeGreaterThanOrEqual(2);
+    });
+
+    it("duplicates sections from the organizer", async () => {
+      const onChange = vi.fn();
+      renderEditor({ onChange });
+      const user = userEvent.setup();
+      await user.click(screen.getAllByRole("button", { name: /duplicate/i })[0]);
+      expect(onChange).toHaveBeenCalled();
+      expect((onChange.mock.calls[0][0] as string)).toContain("{comment: Verse 2}");
+    });
+
+    it("reorders sections from the organizer with drag and drop", () => {
+      const onChange = vi.fn();
+      renderEditor({ onChange });
+      const items = screen.getAllByTestId("section-organizer-item");
+      fireEvent.dragStart(items[0]);
+      fireEvent.dragOver(items[1]);
+      fireEvent.drop(items[1]);
+      expect(onChange).toHaveBeenCalled();
+      const nextValue = onChange.mock.calls[0][0] as string;
+      expect(nextValue.indexOf("{comment: Chorus}")).toBeLessThan(nextValue.indexOf("{comment: Verse 1}"));
+    });
+
+    it("collapses sections into a folded read-only editor view", async () => {
+      renderEditor();
+      const user = userEvent.setup();
+      await user.click(screen.getByRole("button", { name: /collapse verse 1/i }));
+      expect(screen.getByTestId("collapsed-sections-banner")).toBeInTheDocument();
+      expect(screen.getByTestId("chordpro-editor")).toHaveAttribute("readonly");
+      expect((screen.getByTestId("chordpro-editor") as HTMLTextAreaElement).value).toContain("… 2 lines hidden …");
+    });
   });
 
   // ═══════ Format Button ═══════
@@ -276,6 +312,31 @@ describe("ChordProEditor — Phase 2 features", () => {
       renderEditor();
       expect(screen.getByTestId("advanced-shortcuts")).toBeInTheDocument();
       expect(screen.getByText(/ctrl\+space palette/i)).toBeInTheDocument();
+    });
+
+    it("shows cursor-aware help based on the current cursor context", () => {
+      renderEditor({ value: "{title: Test}\n{artist: Someone}\n{key: G}\n\n[G]Amazing grace" });
+      expect(screen.getByTestId("cursor-context-help")).toHaveTextContent(/directive help/i);
+      expect(screen.getByTestId("cursor-context-help")).toHaveTextContent(/keep song metadata near the top/i);
+    });
+
+    it("renders smart suggestions and applies them", async () => {
+      const onChange = vi.fn();
+      renderEditor({ value: "[G]Amazing grace\nHow sweet the sound\n\n[G]Amazing grace\nHow sweet the sound", onChange });
+      expect(screen.getByTestId("smart-suggestions-panel")).toBeInTheDocument();
+      expect(screen.getAllByText(/likely chorus detected/i).length).toBeGreaterThanOrEqual(1);
+
+      const user = userEvent.setup();
+      await user.click(screen.getAllByRole("button", { name: /insert chorus label/i })[0]);
+      expect(onChange).toHaveBeenCalledWith("{comment: Chorus}\n[G]Amazing grace\nHow sweet the sound\n\n[G]Amazing grace\nHow sweet the sound");
+    });
+
+    it("applies inline validation fixes from the editor panel", async () => {
+      const onChange = vi.fn();
+      renderEditor({ value: "[g / b]Amazing grace", onChange });
+      const user = userEvent.setup();
+      await user.click(screen.getAllByTestId("validation-fix-btn")[0]);
+      expect(onChange).toHaveBeenCalledWith("[G/B]Amazing grace");
     });
   });
 });

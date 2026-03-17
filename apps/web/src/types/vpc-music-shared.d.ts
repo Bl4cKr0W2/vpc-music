@@ -11,6 +11,9 @@ declare module "@vpc-music/shared" {
 
   // ── Roles ──────────────────────────────────────
   export const ROLES: Record<string, string>;
+  export const ROLE_LABELS: Record<string, string>;
+  export const ROLE_DESCRIPTIONS: Record<string, string>;
+  export function roleLabel(role: string): string;
 
   // ── Song Schema (Zod) ─────────────────────────
   export const songSchema: any;

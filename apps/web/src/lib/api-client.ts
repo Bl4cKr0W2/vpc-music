@@ -40,7 +40,10 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body?.error?.message || `HTTP ${res.status}`);
+    const error: Error & { status?: number; body?: unknown } = new Error(body?.error?.message || `HTTP ${res.status}`);
+    error.status = res.status;
+    error.body = body;
+    throw error;
   }
   return res.json();
 }
@@ -106,6 +109,7 @@ export interface Song {
   defaultVariationId?: string | null;
   sharedWithMe?: boolean;
   organizationName?: string | null;
+  organizationId?: string | null;
   createdBy?: string | null;
   createdAt?: string;
   updatedAt?: string;
@@ -143,6 +147,24 @@ export interface ImportPreviewResponse {
     tempo?: number | null;
   };
 }
+
+export interface DuplicateSongMatch {
+  id: string;
+  title: string;
+  aka?: string | null;
+  artist?: string | null;
+  key?: string | null;
+  updatedAt?: string | null;
+  titleScore: number;
+  lyricScore: number;
+  overallScore: number;
+  matchedOn: string[];
+}
+
+export type SongWriteInput = Partial<Song> & {
+  lastKnownUpdatedAt?: string;
+  forceOverwrite?: boolean;
+};
 
 export const songsApi = {
   list: (params?: { q?: string; groupId?: string; scope?: "organization" | "shared"; category?: string; tag?: string; key?: string; tempoMin?: number; tempoMax?: number; sort?: "lastEdited" | "title" | "recentlyAdded" | "mostUsed"; limit?: number; offset?: number }) => {
@@ -183,9 +205,14 @@ export const songsApi = {
     request<{ message: string }>(`/api/songs/groups/${groupId}/songs/${songId}`, { method: "DELETE" }),
   getCategories: () => request<{ categories: string[] }>("/api/songs/categories"),
   getTags: () => request<{ tags: string[] }>("/api/songs/tags"),
+  findDuplicates: (data: { title?: string; content?: string; excludeSongId?: string }) =>
+    request<{ matches: DuplicateSongMatch[] }>("/api/songs/duplicates/check", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
   create: (data: Partial<Song>) =>
     request<{ song: Song }>("/api/songs", { method: "POST", body: JSON.stringify(data) }),
-  update: (id: string, data: Partial<Song>) =>
+  update: (id: string, data: SongWriteInput) =>
     request<{ song: Song }>(`/api/songs/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   delete: (id: string) => request<{ message: string }>(`/api/songs/${id}`, { method: "DELETE" }),
   importChrd: (data: { filename: string; content: string }) =>
@@ -442,6 +469,51 @@ export const stickyNotesApi = {
     }),
   delete: (songId: string, noteId: string) =>
     request<{ message: string }>(`/api/songs/${songId}/notes/${noteId}`, { method: "DELETE" }),
+};
+
+// ── Song Collaboration ──────────────────────────
+export interface SongCollaborationItem {
+  id: string;
+  songId: string;
+  organizationId?: string | null;
+  authorId?: string | null;
+  authorName?: string | null;
+  parentId?: string | null;
+  type: "comment" | "rehearsal_marker" | "rehearsal_note";
+  anchor?: string | null;
+  title?: string | null;
+  content: string;
+  status?: "open" | "resolved";
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export const songCollaborationApi = {
+  list: (songId: string) =>
+    request<{ items: SongCollaborationItem[] }>(`/api/songs/${songId}/collaboration`),
+  create: (songId: string, data: {
+    type: SongCollaborationItem["type"];
+    anchor?: string;
+    title?: string;
+    content: string;
+    parentId?: string;
+  }) =>
+    request<{ item: SongCollaborationItem }>(`/api/songs/${songId}/collaboration`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  update: (songId: string, itemId: string, data: {
+    anchor?: string;
+    title?: string;
+    content?: string;
+    status?: SongCollaborationItem["status"];
+  }) =>
+    request<{ item: SongCollaborationItem }>(`/api/songs/${songId}/collaboration/${itemId}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    }),
+  delete: (songId: string, itemId: string) =>
+    request<{ message: string }>(`/api/songs/${songId}/collaboration/${itemId}`, { method: "DELETE" }),
 };
 
 // ── Share (read-only links) ──────────────────────

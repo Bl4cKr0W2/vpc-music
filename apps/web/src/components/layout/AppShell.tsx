@@ -1,8 +1,9 @@
 import { Outlet, NavLink, useNavigate } from "react-router-dom";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
+import { useConnectivity } from "@/contexts/ConnectivityContext";
 import { ThemedLogo } from "@/components/ui/ThemedLogo";
-import { LogOut, Sun, Moon, Shield, Building2, ChevronDown, Plus, Eye, Music, Menu, X } from "lucide-react";
+import { LogOut, Sun, Moon, Shield, Building2, ChevronDown, Plus, Eye, Music, Menu, X, WifiOff, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { orgsApi } from "@/lib/api-client";
 import { roleLabel } from "@vpc-music/shared";
@@ -185,6 +186,7 @@ function OrgSwitcher({ onRequestCreate }: { onRequestCreate: () => void }) {
 export function AppShell() {
   const { resolvedTheme, toggleTheme } = useTheme();
   const { user, logout, activeOrg, refreshUser, switchOrg } = useAuth();
+  const { isOnline, pendingOfflineEditCount, syncingOfflineEdits } = useConnectivity();
   const isAdmin = activeOrg?.role === "admin" || user?.role === "owner";
   const navigate = useNavigate();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -335,6 +337,29 @@ export function AppShell() {
           </button>
         </div>
       </header>
+
+      {(!isOnline || pendingOfflineEditCount > 0) && (
+        <div
+          className={`border-b px-4 py-2 text-sm ${
+            isOnline
+              ? "border-[hsl(var(--border))] bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+              : "border-amber-500/30 bg-amber-500/10 text-amber-800 dark:text-amber-200"
+          }`}
+        >
+          <div className="mx-auto flex max-w-6xl items-center gap-2">
+            {isOnline ? <RefreshCw className={`h-4 w-4 ${syncingOfflineEdits ? "animate-spin" : ""}`} /> : <WifiOff className="h-4 w-4" />}
+            {!isOnline ? (
+              <span>
+                You&apos;re offline. Cached songs and setlists stay available, and existing song edits will queue until you reconnect.
+              </span>
+            ) : (
+              <span>
+                {syncingOfflineEdits ? "Syncing offline edits…" : `${pendingOfflineEditCount} offline edit${pendingOfflineEditCount === 1 ? "" : "s"} waiting to sync.`}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Mobile menu drawer */}
       {mobileMenuOpen && (

@@ -15,8 +15,15 @@ import { ValidationPanel } from "./ValidationPanel";
 import { EditorHelpSection } from "./EditorHelpSection";
 import { CommandPalette, type CommandItem } from "./CommandPalette";
 import { ChordProRenderer } from "./ChordProRenderer";
+import { ChordProRichEditorSurface, type ChordProRichEditorHandle } from "./ChordProRichEditorSurface";
 import { EditorContextMenu, detectContext, type ContextMenuPosition } from "./EditorContextMenu";
+import { SmartSuggestionsPanel } from "./SmartSuggestionsPanel";
+import { CursorContextHelp } from "./CursorContextHelp";
+import { SectionOrganizer } from "./SectionOrganizer";
 import { formatChordPro } from "../../utils/chordpro-format";
+import { applySmartSuggestion, getSmartSuggestions } from "../../utils/chordpro-smart-tools";
+import { buildCollapsedChordProView, duplicateChordProSection, getOrganizedSections, reorderChordProSections } from "../../utils/chordpro-section-organizer";
+import type { ValidationIssue } from "../../utils/chordpro-validate";
 
 // ── Section choices for the insert dropdown ──────
 const SECTION_INSERTS = [
@@ -86,6 +93,14 @@ function getStoredEditorMode(): EditorMode {
   return "advanced";
 }
 
+function shouldUseRichEditor() {
+  if (typeof navigator === "undefined") {
+    return false;
+  }
+
+  return !/jsdom/i.test(navigator.userAgent);
+}
+
 /**
  * Rich ChordPro editor with:
  * 1) Metadata → directive sync (pre-fill)
@@ -98,6 +113,7 @@ function getStoredEditorMode(): EditorMode {
  */
 export function ChordProEditor({ value, onChange, metadata, onSave }: ChordProEditorProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const richEditorRef = useRef<ChordProRichEditorHandle>(null);
   const [editorMode, setEditorMode] = useState<EditorMode>(getStoredEditorMode);
   const [helpOpen, setHelpOpen] = useState<boolean | undefined>(undefined);
   const [sectionDropdownOpen, setSectionDropdownOpen] = useState(false);
@@ -125,10 +141,12 @@ export function ChordProEditor({ value, onChange, metadata, onSave }: ChordProEd
   // ── View mode state (edit / split / preview) ──
   const [viewMode, setViewMode] = useState<ViewMode>("edit");
   const previewRef = useRef<HTMLDivElement>(null);
+  const [selectionRange, setSelectionRange] = useState({ start: 0, end: 0 });
+  const pendingSelectionRef = useRef<{ start: number; end: number } | null>(null);
 
   // ── Line numbers & current line tracking ──────
   const [currentLine, setCurrentLine] = useState(0);
-  const lineCount = value.split("\n").length;
+  const [cursorPosition, setCursorPosition] = useState(0);
   const gutterRef = useRef<HTMLDivElement>(null);
 
   // Sections detected from content for the section-nav dropdown
@@ -141,9 +159,13 @@ export function ChordProEditor({ value, onChange, metadata, onSave }: ChordProEd
     return result;
   }, [value]);
 
+  const organizedSections = useMemo(() => getOrganizedSections(value), [value]);
+
   const [sectionNavOpen, setSectionNavOpen] = useState(false);
   const sectionNavBtnRef = useRef<HTMLButtonElement>(null);
   const sectionNavDropdownRef = useRef<HTMLDivElement>(null);
+  const [draggedSectionId, setDraggedSectionId] = useState<string | null>(null);
+  const [collapsedSectionIds, setCollapsedSectionIds] = useState<string[]>([]);
 
   // ── Context menu state ────────────────────────
   const [contextMenu, setContextMenu] = useState<{
@@ -195,14 +217,153 @@ export function ChordProEditor({ value, onChange, metadata, onSave }: ChordProEd
     return match?.line ?? null;
   }, [sections]);
 
+  const smartSuggestions = useMemo(() => getSmartSuggestions(value), [value]);
+  const isRichEditorEnabled = editorMode === "advanced" && shouldUseRichEditor();
+  const editorSurfaceValue = useMemo(
+    () => buildCollapsedChordProView(value, collapsedSectionIds),
+    [collapsedSectionIds, value],
+  );
+  const lineCount = editorSurfaceValue.split("\n").length;
+
+  const cursorContext = useMemo(() => detectContext(value, cursorPosition), [value, cursorPosition]);
+
+  const cursorHelp = useMemo(() => {
+    const trimmedLine = cursorContext.lineText.trim();
+
+    if (/^\{\w+(?::.*)?\}$/.test(trimmedLine)) {
+      return {
+        title: "Directive help",
+        body: "Keep song metadata near the top so exports, search, and previews stay accurate.",
+        tips: [
+          "Use {title}, {artist}, {key}, and {tempo} before the first lyric section.",
+          "Ctrl+Shift+F normalizes directive spacing and ordering.",
+          "The smart suggestions panel can insert missing metadata with one click.",
+        ],
+      };
+    }
+
+    if (cursorContext.type === "section") {
+      return {
+        title: "Section tools",
+        body: "Section labels power quick navigation, performance mode jumps, and arrangement suggestions.",
+        tips: [
+          "Right-click a section header to duplicate or move it.",
+          "Use consistent labels like Verse 1, Chorus, and Bridge.",
+          "The smart suggestions panel can label unlabeled sections for you.",
+        ],
+      };
+    }
+
+    if (cursorContext.type === "chord") {
+      return {
+        title: "Chord at cursor",
+        body: "You are on a chord token. Quick transpose and cleanup tools are available here.",
+        tips: [
+          "Alt+↑ and Alt+↓ transpose the selected chord or current line.",
+          "Right-click a chord to transpose or remove it.",
+          "Malformed chord spellings will show fix suggestions below the editor.",
+        ],
+      };
+    }
+
+    if (cursorContext.type === "lyrics") {
+      return {
+        title: "Lyric line help",
+        body: "Select a lyric word first, then add a chord exactly where the singer will see it.",
+        tips: [
+          "Ctrl+K inserts chord brackets or opens the chord popup for a selection.",
+          "Ctrl+/ wraps a line in {comment: ...} when you need rehearsal notes or labels.",
+          "Blank lines help separate verses, choruses, and bridges visually.",
+        ],
+      };
+    }
+
+    return {
+      title: "Editor guidance",
+      body: "Move the cursor onto metadata, section headers, chords, or lyrics to see context-aware help.",
+      tips: [
+        "Ctrl+Space opens the command palette.",
+        "F1 toggles the help/reference panel.",
+        "Smart suggestions appear when the editor notices likely improvements.",
+      ],
+    };
+  }, [cursorContext]);
+
   // Update current line on cursor movement
+  const handleSelectionChange = useCallback((start: number, end: number) => {
+    setSelectionRange({ start, end });
+    setCursorPosition(start);
+    setCurrentLine(editorSurfaceValue.slice(0, start).split("\n").length - 1);
+  }, [editorSurfaceValue]);
+
   const updateCurrentLine = useCallback(() => {
     const ta = textareaRef.current;
     if (!ta) return;
-    const pos = ta.selectionStart;
-    const linesBefore = value.slice(0, pos).split("\n");
-    setCurrentLine(linesBefore.length - 1);
-  }, [value]);
+    handleSelectionChange(ta.selectionStart, ta.selectionEnd);
+  }, [handleSelectionChange]);
+
+  const getActiveSelection = useCallback(() => {
+    if (isRichEditorEnabled) {
+      return richEditorRef.current?.getSelection() ?? selectionRange;
+    }
+
+    return {
+      start: textareaRef.current?.selectionStart ?? selectionRange.start,
+      end: textareaRef.current?.selectionEnd ?? selectionRange.end,
+    };
+  }, [isRichEditorEnabled, selectionRange]);
+
+  const focusActiveEditor = useCallback(() => {
+    if (isRichEditorEnabled) {
+      richEditorRef.current?.focus();
+      return;
+    }
+
+    textareaRef.current?.focus();
+  }, [isRichEditorEnabled]);
+
+  const applySelection = useCallback((start: number, end: number) => {
+    if (isRichEditorEnabled) {
+      if (!richEditorRef.current) {
+        return false;
+      }
+      richEditorRef.current.setSelection(start, end);
+      handleSelectionChange(start, end);
+      return true;
+    }
+
+    const ta = textareaRef.current;
+    if (!ta) {
+      return false;
+    }
+
+    ta.focus();
+    ta.setSelectionRange(start, end);
+    handleSelectionChange(start, end);
+    return true;
+  }, [handleSelectionChange, isRichEditorEnabled]);
+
+  const flushPendingSelection = useCallback(() => {
+    if (!pendingSelectionRef.current) {
+      return;
+    }
+
+    const pending = pendingSelectionRef.current;
+    if (applySelection(pending.start, pending.end)) {
+      pendingSelectionRef.current = null;
+    }
+  }, [applySelection]);
+
+  const scheduleSelection = useCallback((start: number, end: number) => {
+    pendingSelectionRef.current = { start, end };
+    requestAnimationFrame(() => {
+      flushPendingSelection();
+    });
+  }, [flushPendingSelection]);
+
+  useEffect(() => {
+    flushPendingSelection();
+  }, [flushPendingSelection, value, isRichEditorEnabled]);
 
   // Sync gutter scroll with textarea
   const syncGutterScroll = useCallback(() => {
@@ -304,9 +465,7 @@ export function ChordProEditor({ value, onChange, metadata, onSave }: ChordProEd
   // ── 2) Insert text at cursor ──────────────────
   const insertAtCursor = useCallback(
     (text: string) => {
-      const ta = textareaRef.current;
-      if (!ta) return;
-      const start = ta.selectionStart;
+      const start = getActiveSelection().start;
       const before = value.slice(0, start);
       const after = value.slice(start);
 
@@ -321,35 +480,27 @@ export function ChordProEditor({ value, onChange, metadata, onSave }: ChordProEd
       onChange(newValue);
       setSectionDropdownOpen(false);
 
-      // Restore cursor after insert
-      requestAnimationFrame(() => {
-        const pos = start + inserted.length;
-        ta.focus();
-        ta.setSelectionRange(pos, pos);
-      });
+      scheduleSelection(start + inserted.length, start + inserted.length);
     },
-    [value, onChange],
+    [getActiveSelection, onChange, scheduleSelection, value],
   );
 
   // ── Command palette select handler ────────────
   const handleCommandSelect = useCallback(
     (item: CommandItem) => {
-      const ta = textareaRef.current;
-      if (!ta) return;
-
       // If triggered via slash command, remove the "/" (and any typed filter text)
       if (slashPosRef.current !== null) {
         const slashStart = slashPosRef.current;
-        const cursorPos = ta.selectionStart;
+        const cursorPos = getActiveSelection().start;
         // Remove everything from the slash to current cursor
         const before = value.slice(0, slashStart);
         const after = value.slice(cursorPos);
         const newValue = before + after;
         onChange(newValue);
-        // Set cursor to slash position and insert
+
         requestAnimationFrame(() => {
-          ta.focus();
-          ta.setSelectionRange(slashStart, slashStart);
+          focusActiveEditor();
+          scheduleSelection(slashStart, slashStart);
           requestAnimationFrame(() => {
             insertAtCursor(item.value);
           });
@@ -359,45 +510,137 @@ export function ChordProEditor({ value, onChange, metadata, onSave }: ChordProEd
         insertAtCursor(item.value);
       }
     },
-    [value, onChange, insertAtCursor],
+    [focusActiveEditor, getActiveSelection, insertAtCursor, onChange, scheduleSelection, value],
   );
 
   const handleCommandPaletteClose = useCallback(() => {
     setCommandPaletteOpen(false);
     setCommandPaletteQuery("");
     slashPosRef.current = null;
-    textareaRef.current?.focus();
+    focusActiveEditor();
+  }, [focusActiveEditor]);
+
+  const handleApplyValidationFix = useCallback(
+    (issue: ValidationIssue) => {
+      const lines = value.split("\n");
+      const lineIndex = Math.max(0, issue.line - 1);
+      const next = [...lines];
+
+      switch (issue.code) {
+        case "duplicate-directive":
+          next.splice(lineIndex, 1);
+          onChange(next.join("\n"));
+          return;
+        case "missing-metadata":
+          onChange(applySmartSuggestion(value, {
+            id: `fix-${issue.directiveName ?? "title"}`,
+            type: "missing-metadata",
+            line: 1,
+            title: "",
+            description: "",
+            directiveName: (issue.directiveName === "artist" || issue.directiveName === "key" || issue.directiveName === "title")
+              ? issue.directiveName
+              : "title",
+          }, metadata));
+          return;
+        case "malformed-chord":
+          onChange(applySmartSuggestion(value, {
+            id: `fix-${issue.line}-${issue.chordText ?? "chord"}`,
+            type: "chord-correction",
+            line: issue.line,
+            title: "",
+            description: "",
+            originalChord: issue.chordText,
+            suggestedChord: issue.suggestedValue,
+          }, metadata));
+          return;
+        case "unclosed-bracket":
+          next[lineIndex] = `${next[lineIndex] ?? ""}]`;
+          onChange(next.join("\n"));
+          return;
+        case "unclosed-brace":
+          next[lineIndex] = `${next[lineIndex] ?? ""}}`;
+          onChange(next.join("\n"));
+          return;
+        case "unexpected-closing-bracket":
+          next[lineIndex] = (next[lineIndex] ?? "").replace("]", "");
+          onChange(next.join("\n"));
+          return;
+        case "unexpected-closing-brace":
+          next[lineIndex] = (next[lineIndex] ?? "").replace("}", "");
+          onChange(next.join("\n"));
+          return;
+        default:
+          return;
+      }
+    },
+    [metadata, onChange, value],
+  );
+
+  const handleApplySmartSuggestion = useCallback(
+    (suggestion: ReturnType<typeof getSmartSuggestions>[number]) => {
+      onChange(applySmartSuggestion(value, suggestion, metadata));
+    },
+    [metadata, onChange, value],
+  );
+
+  const handleSectionDrop = useCallback(
+    (targetSectionId: string) => {
+      if (!draggedSectionId || draggedSectionId === targetSectionId) {
+        setDraggedSectionId(null);
+        return;
+      }
+
+      onChange(reorderChordProSections(value, draggedSectionId, targetSectionId));
+      setDraggedSectionId(null);
+    },
+    [draggedSectionId, onChange, value],
+  );
+
+  const handleSectionDuplicate = useCallback(
+    (sectionId: string) => {
+      onChange(duplicateChordProSection(value, sectionId));
+    },
+    [onChange, value],
+  );
+
+  const handleToggleSectionCollapse = useCallback((sectionId: string) => {
+    setCollapsedSectionIds((current) => (
+      current.includes(sectionId)
+        ? current.filter((id) => id !== sectionId)
+        : [...current, sectionId]
+    ));
   }, []);
 
   // ── Jump to a specific line (for section nav) ──
   const jumpToLine = useCallback(
     (lineIndex: number) => {
-      const ta = textareaRef.current;
-      if (!ta) return;
       const lines = value.split("\n");
       let charPos = 0;
       for (let i = 0; i < lineIndex && i < lines.length; i++) {
         charPos += lines[i].length + 1; // +1 for \n
       }
-      ta.focus();
-      ta.setSelectionRange(charPos, charPos);
-      // Scroll to the line
-      const lineHeight = 20;
-      ta.scrollTop = Math.max(0, lineIndex * lineHeight - ta.clientHeight / 3);
-      setCurrentLine(lineIndex);
+
+      applySelection(charPos, charPos);
+      if (!isRichEditorEnabled) {
+        const ta = textareaRef.current;
+        if (ta) {
+          const lineHeight = 20;
+          ta.scrollTop = Math.max(0, lineIndex * lineHeight - ta.clientHeight / 3);
+        }
+      }
+
+      focusActiveEditor();
       setSectionNavOpen(false);
     },
-    [value],
+    [applySelection, focusActiveEditor, isRichEditorEnabled, value],
   );
 
   // ── Context menu handler ──────────────────────
   const handleContextMenu = useCallback(
-    (e: React.MouseEvent<HTMLTextAreaElement>) => {
+    (e: Pick<globalThis.MouseEvent, "preventDefault" | "clientX" | "clientY">) => {
       e.preventDefault();
-      const ta = textareaRef.current;
-      if (!ta) return;
-
-      const cursorPos = ta.selectionStart;
+      const cursorPos = getActiveSelection().start;
       const ctx = detectContext(value, cursorPos);
       const lines = value.split("\n");
 
@@ -523,10 +766,7 @@ export function ChordProEditor({ value, onChange, metadata, onSave }: ChordProEd
               action: () => {
                 const newValue = value.slice(0, cursorPos) + "[]" + value.slice(cursorPos);
                 onChange(newValue);
-                requestAnimationFrame(() => {
-                  ta.focus();
-                  ta.setSelectionRange(cursorPos + 1, cursorPos + 1);
-                });
+                scheduleSelection(cursorPos + 1, cursorPos + 1);
               },
             },
             {
@@ -555,10 +795,7 @@ export function ChordProEditor({ value, onChange, metadata, onSave }: ChordProEd
             action: () => {
               const pos = lineOffset(ctx.lineIndex);
               onChange(value.slice(0, pos) + "\n" + value.slice(pos));
-              requestAnimationFrame(() => {
-                ta.focus();
-                ta.setSelectionRange(pos, pos);
-              });
+              scheduleSelection(pos, pos);
             },
           },
           {
@@ -566,11 +803,7 @@ export function ChordProEditor({ value, onChange, metadata, onSave }: ChordProEd
             action: () => {
               const pos = lineOffset(ctx.lineIndex) + lines[ctx.lineIndex].length;
               onChange(value.slice(0, pos) + "\n" + value.slice(pos));
-              requestAnimationFrame(() => {
-                const newPos = pos + 1;
-                ta.focus();
-                ta.setSelectionRange(newPos, newPos);
-              });
+              scheduleSelection(pos + 1, pos + 1);
             },
           },
           {
@@ -597,18 +830,23 @@ export function ChordProEditor({ value, onChange, metadata, onSave }: ChordProEd
         groups,
       });
     },
-    [value, onChange, contextMenu.groups],
+    [getActiveSelection, onChange, scheduleSelection, value],
   );
 
   // ── 3) Chord popup on text selection ──────────
   const handleMouseUp = useCallback(() => {
-    const ta = textareaRef.current;
-    if (!ta) return;
-    const { selectionStart, selectionEnd } = ta;
+    const { start: selectionStart, end: selectionEnd } = getActiveSelection();
     if (selectionStart === selectionEnd) return; // no selection
 
-    // Get position for the popup — approximate from textarea position
-    const rect = ta.getBoundingClientRect();
+    const rect = isRichEditorEnabled
+      ? richEditorRef.current?.getDomRect()
+      : textareaRef.current?.getBoundingClientRect();
+    if (!rect) return;
+
+    const scrollTop = isRichEditorEnabled
+      ? richEditorRef.current?.getScrollMetrics().top ?? 0
+      : textareaRef.current?.scrollTop ?? 0;
+
     // Use a rough approximation: character position → pixel offset
     const linesBefore = value.slice(0, selectionStart).split("\n");
     const lineHeight = 20; // approximation for font-mono text-sm
@@ -617,7 +855,7 @@ export function ChordProEditor({ value, onChange, metadata, onSave }: ChordProEd
     const col = linesBefore[linesBefore.length - 1].length;
 
     const x = Math.min(rect.width - 180, Math.max(0, col * charWidth));
-    const y = Math.min(rect.height - 40, Math.max(0, (row + 1) * lineHeight - ta.scrollTop));
+    const y = Math.min(rect.height - 40, Math.max(0, (row + 1) * lineHeight - scrollTop));
 
     setChordPopup({
       open: true,
@@ -628,7 +866,7 @@ export function ChordProEditor({ value, onChange, metadata, onSave }: ChordProEd
     });
     setChordInput("");
     requestAnimationFrame(() => chordInputRef.current?.focus());
-  }, [value]);
+  }, [getActiveSelection, isRichEditorEnabled, value]);
 
   const applyChord = useCallback(() => {
     const chord = chordInput.trim();
@@ -645,13 +883,11 @@ export function ChordProEditor({ value, onChange, metadata, onSave }: ChordProEd
 
     // Restore cursor after the inserted chord+text
     requestAnimationFrame(() => {
-      const ta = textareaRef.current;
-      if (!ta) return;
       const pos = selStart + chord.length + 2 + selectedText.length;
-      ta.focus();
-      ta.setSelectionRange(pos, pos);
+      focusActiveEditor();
+      scheduleSelection(pos, pos);
     });
-  }, [chordInput, chordPopup, value, onChange]);
+  }, [chordInput, chordPopup, focusActiveEditor, onChange, scheduleSelection, value]);
 
   const handleChordKeyDown = useCallback(
     (e: KeyboardEvent<HTMLInputElement>) => {
@@ -660,18 +896,77 @@ export function ChordProEditor({ value, onChange, metadata, onSave }: ChordProEd
         applyChord();
       } else if (e.key === "Escape") {
         setChordPopup((p) => ({ ...p, open: false }));
-        textareaRef.current?.focus();
+        focusActiveEditor();
       }
     },
-    [applyChord],
+    [applyChord, focusActiveEditor],
   );
+
+  const toggleCommentSelection = useCallback(() => {
+    const { start: selectionStart, end: selectionEnd } = getActiveSelection();
+    const lines = value.split("\n");
+    let charIdx = 0;
+    let startLine = 0;
+    let endLine = 0;
+
+    for (let i = 0; i < lines.length; i++) {
+      const lineEnd = charIdx + lines[i].length;
+      if (charIdx <= selectionStart && selectionStart <= lineEnd + 1) startLine = i;
+      if (charIdx <= selectionEnd && selectionEnd <= lineEnd + 1) endLine = i;
+      charIdx = lineEnd + 1;
+    }
+
+    const allComments = lines.slice(startLine, endLine + 1).every((line) =>
+      /^\{comment:\s*.*\}$/.test(line.trim()),
+    );
+    const newLines = [...lines];
+    for (let i = startLine; i <= endLine; i++) {
+      const trimmed = newLines[i].trim();
+      if (allComments) {
+        const match = trimmed.match(/^\{comment:\s*(.*)\}$/);
+        newLines[i] = match ? match[1] : trimmed;
+      } else if (trimmed && !/^\{comment:/.test(trimmed)) {
+        newLines[i] = `{comment: ${trimmed}}`;
+      }
+    }
+
+    onChange(newLines.join("\n"));
+  }, [getActiveSelection, onChange, value]);
+
+  const insertEmptyChordAtCursor = useCallback(() => {
+    const { start: selectionStart } = getActiveSelection();
+    const newValue = value.slice(0, selectionStart) + "[]" + value.slice(selectionStart);
+    onChange(newValue);
+    scheduleSelection(selectionStart + 1, selectionStart + 1);
+  }, [getActiveSelection, onChange, scheduleSelection, value]);
+
+  const transposeSelection = useCallback((steps: number) => {
+    const { start, end } = getActiveSelection();
+    let rangeStart = start;
+    let rangeEnd = end;
+
+    if (rangeStart === rangeEnd) {
+      const lineStart = value.lastIndexOf("\n", rangeStart - 1) + 1;
+      const lineEnd = value.indexOf("\n", rangeStart);
+      rangeStart = lineStart;
+      rangeEnd = lineEnd === -1 ? value.length : lineEnd;
+    }
+
+    const selectedText = value.slice(rangeStart, rangeEnd);
+    const transposed = selectedText.replace(/\[([^\]]+)\]/g, (_m: string, chord: string) => {
+      return `[${transposeChord(chord, steps)}]`;
+    });
+
+    if (transposed !== selectedText) {
+      const newValue = value.slice(0, rangeStart) + transposed + value.slice(rangeEnd);
+      onChange(newValue);
+      scheduleSelection(rangeStart, rangeStart + transposed.length);
+    }
+  }, [getActiveSelection, onChange, scheduleSelection, value]);
 
   // ── 4) Keyboard shortcuts on the textarea ─────
   const handleEditorKeyDown = useCallback(
-    (e: KeyboardEvent<HTMLTextAreaElement>) => {
-      const ta = textareaRef.current;
-      if (!ta) return;
-
+    (e: KeyboardEvent<HTMLTextAreaElement> | globalThis.KeyboardEvent) => {
       // Ctrl+S — save (with optional format-on-save)
       if ((e.ctrlKey || e.metaKey) && e.key === "s") {
         e.preventDefault();
@@ -732,52 +1027,19 @@ export function ChordProEditor({ value, onChange, metadata, onSave }: ChordProEd
       // Ctrl+/ — toggle comment on selected line(s)
       if ((e.ctrlKey || e.metaKey) && e.key === "/") {
         e.preventDefault();
-        const { selectionStart, selectionEnd } = ta;
-        const lines = value.split("\n");
-        // Find line range
-        let charIdx = 0;
-        let startLine = 0;
-        let endLine = 0;
-        for (let i = 0; i < lines.length; i++) {
-          const lineEnd = charIdx + lines[i].length;
-          if (charIdx <= selectionStart && selectionStart <= lineEnd + 1) startLine = i;
-          if (charIdx <= selectionEnd && selectionEnd <= lineEnd + 1) endLine = i;
-          charIdx = lineEnd + 1; // +1 for \n
-        }
-        // Toggle: if all selected lines are {comment: ...}, unwrap; else wrap
-        const allComments = lines.slice(startLine, endLine + 1).every((l) =>
-          /^\{comment:\s*.*\}$/.test(l.trim()),
-        );
-        const newLines = [...lines];
-        for (let i = startLine; i <= endLine; i++) {
-          const trimmed = newLines[i].trim();
-          if (allComments) {
-            // Unwrap {comment: ...}
-            const m = trimmed.match(/^\{comment:\s*(.*)\}$/);
-            newLines[i] = m ? m[1] : trimmed;
-          } else if (trimmed && !/^\{comment:/.test(trimmed)) {
-            newLines[i] = `{comment: ${trimmed}}`;
-          }
-        }
-        onChange(newLines.join("\n"));
+        toggleCommentSelection();
         return;
       }
 
       // Ctrl+K — insert chord at cursor / on selection
       if ((e.ctrlKey || e.metaKey) && e.key === "k") {
         e.preventDefault();
-        const { selectionStart, selectionEnd } = ta;
+        const { start: selectionStart, end: selectionEnd } = getActiveSelection();
         if (selectionStart !== selectionEnd) {
           // Trigger chord popup at selection
           handleMouseUp();
         } else {
-          // Insert empty chord brackets at cursor
-          const newValue = value.slice(0, selectionStart) + "[]" + value.slice(selectionStart);
-          onChange(newValue);
-          requestAnimationFrame(() => {
-            ta.focus();
-            ta.setSelectionRange(selectionStart + 1, selectionStart + 1);
-          });
+          insertEmptyChordAtCursor();
         }
         return;
       }
@@ -806,34 +1068,11 @@ export function ChordProEditor({ value, onChange, metadata, onSave }: ChordProEd
       // Alt+Up / Alt+Down — transpose selected chord(s) up/down one semitone
       if (e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
         e.preventDefault();
-        const steps = e.key === "ArrowUp" ? 1 : -1;
-        const { selectionStart, selectionEnd } = ta;
-        // Get the selected text (or current line if no selection)
-        let rangeStart = selectionStart;
-        let rangeEnd = selectionEnd;
-        if (rangeStart === rangeEnd) {
-          // Select the whole current line
-          const lineStart = value.lastIndexOf("\n", rangeStart - 1) + 1;
-          const lineEnd = value.indexOf("\n", rangeStart);
-          rangeStart = lineStart;
-          rangeEnd = lineEnd === -1 ? value.length : lineEnd;
-        }
-        const selectedText = value.slice(rangeStart, rangeEnd);
-        const transposed = selectedText.replace(/\[([^\]]+)\]/g, (_m: string, chord: string) => {
-          return `[${transposeChord(chord, steps)}]`;
-        });
-        if (transposed !== selectedText) {
-          const newValue = value.slice(0, rangeStart) + transposed + value.slice(rangeEnd);
-          onChange(newValue);
-          requestAnimationFrame(() => {
-            ta.focus();
-            ta.setSelectionRange(rangeStart, rangeStart + transposed.length);
-          });
-        }
+        transposeSelection(e.key === "ArrowUp" ? 1 : -1);
         return;
       }
     },
-    [value, onChange, onSave, insertAtCursor, handleMouseUp, formatOnSave, handleFormat, sections.length, findSectionLine, jumpToLine],
+    [findSectionLine, formatOnSave, getActiveSelection, handleFormat, handleMouseUp, insertAtCursor, insertEmptyChordAtCursor, jumpToLine, onSave, sections.length, toggleCommentSelection, transposeSelection],
   );
 
   // ── Sync overlay scroll with textarea (and optionally preview) ──
@@ -854,6 +1093,19 @@ export function ChordProEditor({ value, onChange, metadata, onSave }: ChordProEd
     }
   }, [viewMode, syncGutterScroll]);
 
+  const handleRichEditorScroll = useCallback((metrics: {
+    top: number;
+    left: number;
+    scrollHeight: number;
+    clientHeight: number;
+  }) => {
+    if (viewMode === "split" && previewRef.current) {
+      const scrollRatio = metrics.top / (metrics.scrollHeight - metrics.clientHeight || 1);
+      const previewEl = previewRef.current;
+      previewEl.scrollTop = scrollRatio * (previewEl.scrollHeight - previewEl.clientHeight);
+    }
+  }, [viewMode]);
+
   // Quick chord validation for the visual indicator
   const isValidChord = chordInput.trim()
     ? CHORD_REGEX.test(chordInput.trim()) || /^[A-G]/.test(chordInput.trim())
@@ -862,13 +1114,10 @@ export function ChordProEditor({ value, onChange, metadata, onSave }: ChordProEd
   const showPowerTools = !isBeginnerMode;
 
   // ── Slash-command detection on change ─────────
-  const handleChange = useCallback(
-    (e: ChangeEvent<HTMLTextAreaElement>) => {
-      const newValue = e.target.value;
+  const handleEditorValueChange = useCallback((newValue: string, cursor: number) => {
       onChange(newValue);
 
       // Detect "/" typed at line start → open command palette
-      const cursor = e.target.selectionStart;
       if (cursor > 0 && newValue[cursor - 1] === "/") {
         const lineStart = newValue.lastIndexOf("\n", cursor - 2) + 1;
         const textBefore = newValue.slice(lineStart, cursor - 1).trim();
@@ -878,8 +1127,15 @@ export function ChordProEditor({ value, onChange, metadata, onSave }: ChordProEd
           setCommandPaletteOpen(true);
         }
       }
-    },
+  },
     [onChange],
+  );
+
+  const handleChange = useCallback(
+    (e: ChangeEvent<HTMLTextAreaElement>) => {
+      handleEditorValueChange(e.target.value, e.target.selectionStart);
+    },
+    [handleEditorValueChange],
   );
 
   return (
@@ -1127,6 +1383,41 @@ export function ChordProEditor({ value, onChange, metadata, onSave }: ChordProEd
         </div>
       )}
 
+      {viewMode !== "preview" && showPowerTools && (
+        <CursorContextHelp
+          title={cursorHelp.title}
+          body={cursorHelp.body}
+          tips={cursorHelp.tips}
+        />
+      )}
+
+      <SmartSuggestionsPanel
+        suggestions={smartSuggestions}
+        onApplySuggestion={handleApplySmartSuggestion}
+      />
+
+      {viewMode !== "preview" && showPowerTools && organizedSections.length > 0 && (
+        <SectionOrganizer
+          sections={organizedSections}
+          draggedSectionId={draggedSectionId}
+          collapsedSectionIds={collapsedSectionIds}
+          onDragStart={setDraggedSectionId}
+          onDrop={handleSectionDrop}
+          onDuplicate={handleSectionDuplicate}
+          onToggleCollapse={handleToggleSectionCollapse}
+          onJumpToLine={jumpToLine}
+        />
+      )}
+
+      {collapsedSectionIds.length > 0 && viewMode !== "preview" && (
+        <div
+          className="rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--muted))]/70 px-3 py-2 text-xs text-[hsl(var(--muted-foreground))]"
+          data-testid="collapsed-sections-banner"
+        >
+          {collapsedSectionIds.length} section{collapsedSectionIds.length === 1 ? " is" : "s are"} folded in the editor view. Expand them from the section organizer to resume direct source editing.
+        </div>
+      )}
+
       {viewMode !== "preview" && sections.length > 0 && (
         <div className="flex gap-2 overflow-x-auto pb-1" data-testid="section-chip-bar" aria-label="Quick section navigation">
           {sections.map((section) => (
@@ -1147,63 +1438,86 @@ export function ChordProEditor({ value, onChange, metadata, onSave }: ChordProEd
       <div className={viewMode === "split" ? "grid grid-cols-2 gap-4" : ""}>
         {/* ── Editor pane (hidden in preview-only mode) ── */}
         {viewMode !== "preview" && (
-          <div>
-            <div className="relative flex">
-              {/* Line number gutter */}
-              <div
-                ref={gutterRef}
-                className="pointer-events-none select-none overflow-hidden rounded-l-md border-r border-[hsl(var(--border))] bg-[hsl(var(--muted))] py-2 pr-2 text-right font-mono text-xs leading-5 text-[hsl(var(--muted-foreground))]"
-                style={{ minWidth: `${Math.max(2, String(lineCount).length) * 0.75 + 0.75}rem` }}
-                aria-hidden="true"
-                data-testid="line-number-gutter"
-              >
-                {Array.from({ length: lineCount }, (_, i) => (
-                  <div
-                    key={i}
-                    className={`px-1 ${i === currentLine ? "text-[hsl(var(--foreground))] font-medium" : ""}`}
-                  >
-                    {i + 1}
-                  </div>
-                ))}
-              </div>
-
-              {/* Editor area (overlay + textarea) */}
-              <div className="relative flex-1">
-                {/* Current line highlight */}
-                <div
-                  className="pointer-events-none absolute left-0 right-0 z-5 bg-[hsl(var(--accent))]/10"
-                  style={{
-                    top: `${currentLine * 20 + 8 - (textareaRef.current?.scrollTop ?? 0)}px`,
-                    height: "20px",
-                  }}
-                  data-testid="current-line-highlight"
-                />
-
-                {/* Syntax highlight overlay */}
-                <SyntaxHighlightOverlay value={value} ref={overlayRef} />
-
-                <textarea
-                  ref={textareaRef}
-                  value={value}
-                  onChange={handleChange}
-                  onMouseUp={(e) => { handleMouseUp(); updateCurrentLine(); }}
-                  onKeyDown={handleEditorKeyDown}
-                  onKeyUp={updateCurrentLine}
-                  onClick={updateCurrentLine}
-                  onContextMenu={handleContextMenu}
-                  onScroll={handleScroll}
-                  rows={20}
-                  spellCheck={false}
-                  className="relative z-10 w-full rounded-r-md border border-l-0 border-[hsl(var(--input))] bg-transparent px-3 py-2 font-mono text-sm leading-5 text-transparent caret-[hsl(var(--foreground))] placeholder:text-[hsl(var(--muted-foreground))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))]"
-                  placeholder={`{title: Amazing Grace}
+          <div className="relative">
+            {isRichEditorEnabled ? (
+              <ChordProRichEditorSurface
+                ref={richEditorRef}
+                value={editorSurfaceValue}
+                onValueChange={handleEditorValueChange}
+                onSelectionChange={handleSelectionChange}
+                onScrollChange={handleRichEditorScroll}
+                onKeyDown={handleEditorKeyDown}
+                onMouseUp={handleMouseUp}
+                onContextMenu={handleContextMenu}
+                readOnly={collapsedSectionIds.length > 0}
+                placeholderText={`{title: Amazing Grace}
 {key: G}
 
 {comment: Verse 1}
 [G]Amazing [G/B]grace, how [C]sweet the [G]sound
 That [G]saved a [Em]wretch like [D]me`}
-                  data-testid="chordpro-editor"
-                  aria-label="ChordPro song content editor"
-                />
+              />
+            ) : (
+              <div className="relative flex">
+                {/* Line number gutter */}
+                <div
+                  ref={gutterRef}
+                  className="pointer-events-none select-none overflow-hidden rounded-l-md border-r border-[hsl(var(--border))] bg-[hsl(var(--muted))] py-2 pr-2 text-right font-mono text-xs leading-5 text-[hsl(var(--muted-foreground))]"
+                  style={{ minWidth: `${Math.max(2, String(lineCount).length) * 0.75 + 0.75}rem` }}
+                  aria-hidden="true"
+                  data-testid="line-number-gutter"
+                >
+                  {Array.from({ length: lineCount }, (_, i) => (
+                    <div
+                      key={i}
+                      className={`px-1 ${i === currentLine ? "text-[hsl(var(--foreground))] font-medium" : ""}`}
+                    >
+                      {i + 1}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Editor area (overlay + textarea) */}
+                <div className="relative flex-1">
+                  {/* Current line highlight */}
+                  <div
+                    className="pointer-events-none absolute left-0 right-0 z-5 bg-[hsl(var(--accent))]/10"
+                    style={{
+                      top: `${currentLine * 20 + 8 - (textareaRef.current?.scrollTop ?? 0)}px`,
+                      height: "20px",
+                    }}
+                    data-testid="current-line-highlight"
+                  />
+
+                  {/* Syntax highlight overlay */}
+                  <SyntaxHighlightOverlay value={editorSurfaceValue} ref={overlayRef} />
+
+                  <textarea
+                    ref={textareaRef}
+                    value={editorSurfaceValue}
+                    onChange={handleChange}
+                    onMouseUp={() => { handleMouseUp(); updateCurrentLine(); }}
+                    onKeyDown={handleEditorKeyDown}
+                    onKeyUp={updateCurrentLine}
+                    onClick={updateCurrentLine}
+                    onContextMenu={handleContextMenu}
+                    onScroll={handleScroll}
+                    rows={20}
+                    spellCheck={false}
+                    readOnly={collapsedSectionIds.length > 0}
+                    className="relative z-10 w-full rounded-r-md border border-l-0 border-[hsl(var(--input))] bg-transparent px-3 py-2 font-mono text-sm leading-5 text-transparent caret-[hsl(var(--foreground))] placeholder:text-[hsl(var(--muted-foreground))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))]"
+                    placeholder={`{title: Amazing Grace}
+{key: G}
+
+{comment: Verse 1}
+[G]Amazing [G/B]grace, how [C]sweet the [G]sound
+That [G]saved a [Em]wretch like [D]me`}
+                    data-testid="chordpro-editor"
+                    aria-label="ChordPro song content editor"
+                  />
+                </div>
+              </div>
+            )}
 
               {/* ── Chord popup ────────────────────────── */}
               {chordPopup.open && (
@@ -1249,8 +1563,7 @@ That [G]saved a [Em]wretch like [D]me`}
                   </span>
                 </div>
               )}
-              </div>
-            </div>
+
           </div>
         )}
 
@@ -1281,7 +1594,7 @@ That [G]saved a [Em]wretch like [D]me`}
       </div>
 
       {/* Validation panel */}
-      <ValidationPanel source={value} />
+      <ValidationPanel source={value} onApplyFix={handleApplyValidationFix} />
 
       {/* Collapsible help section */}
       <EditorHelpSection onInsertTemplate={insertAtCursor} open={helpOpen} onOpenChange={setHelpOpen} />

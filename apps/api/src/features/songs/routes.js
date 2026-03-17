@@ -46,6 +46,110 @@ function hasDirective(content, key) {
   return new RegExp(`^\\{(?:${key}):\\s*.*?\\}$`, "im").test(content);
 }
 
+function normalizeComparableText(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/\[[^\]]*\]/g, " ")
+    .replace(/\{[^}]*\}/g, " ")
+    .replace(/[^a-z0-9\s]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function tokenizeComparableText(value) {
+  return normalizeComparableText(value)
+    .split(" ")
+    .map((token) => token.trim())
+    .filter((token) => token.length > 1);
+}
+
+function computeTokenOverlapScore(leftTokens, rightTokens) {
+  if (leftTokens.length === 0 || rightTokens.length === 0) {
+    return 0;
+  }
+
+  const leftSet = new Set(leftTokens);
+  const rightSet = new Set(rightTokens);
+  const intersection = [...leftSet].filter((token) => rightSet.has(token)).length;
+  const union = new Set([...leftSet, ...rightSet]).size;
+  return union === 0 ? 0 : intersection / union;
+}
+
+function computeTitleSimilarityScore(inputTitle, candidateTitle, candidateAka) {
+  const normalizedInput = normalizeComparableText(inputTitle);
+  const normalizedTitle = normalizeComparableText(candidateTitle);
+  const normalizedAka = normalizeComparableText(candidateAka);
+
+  if (!normalizedInput || (!normalizedTitle && !normalizedAka)) {
+    return 0;
+  }
+
+  const titleCandidates = [normalizedTitle, normalizedAka].filter(Boolean);
+  let bestScore = 0;
+
+  for (const candidate of titleCandidates) {
+    if (candidate === normalizedInput) {
+      bestScore = Math.max(bestScore, 1);
+      continue;
+    }
+
+    if (candidate.includes(normalizedInput) || normalizedInput.includes(candidate)) {
+      bestScore = Math.max(bestScore, 0.88);
+      continue;
+    }
+
+    const overlap = computeTokenOverlapScore(
+      tokenizeComparableText(normalizedInput),
+      tokenizeComparableText(candidate),
+    );
+    bestScore = Math.max(bestScore, overlap);
+  }
+
+  return Number(bestScore.toFixed(2));
+}
+
+function computeLyricSimilarityScore(inputContent, candidateContent) {
+  const overlap = computeTokenOverlapScore(
+    tokenizeComparableText(inputContent).slice(0, 120),
+    tokenizeComparableText(candidateContent).slice(0, 120),
+  );
+
+  return Number(overlap.toFixed(2));
+}
+
+function buildDuplicateMatches(rows, { title, content, excludeSongId }) {
+  return rows
+    .filter((row) => row.id !== excludeSongId)
+    .map((row) => {
+      const titleScore = computeTitleSimilarityScore(title, row.title, row.aka);
+      const lyricScore = computeLyricSimilarityScore(content, row.content);
+      const matchedOn = [];
+
+      if (titleScore >= 0.6) {
+        matchedOn.push("title");
+      }
+      if (lyricScore >= 0.35) {
+        matchedOn.push("lyrics");
+      }
+
+      return {
+        id: row.id,
+        title: row.title,
+        aka: row.aka,
+        artist: row.artist,
+        key: row.key,
+        updatedAt: row.updatedAt,
+        titleScore,
+        lyricScore,
+        overallScore: Number(Math.max(titleScore, lyricScore).toFixed(2)),
+        matchedOn,
+      };
+    })
+    .filter((row) => row.matchedOn.length > 0)
+    .sort((left, right) => right.overallScore - left.overallScore)
+    .slice(0, 5);
+}
+
 function buildExportContent(baseSong, variation) {
   if (!variation) {
     return {
@@ -974,6 +1078,39 @@ songRoutes.get(
   })
 );
 
+// ── POST /api/songs/duplicates/check — duplicate suggestions ─
+songRoutes.post(
+  "/duplicates/check",
+  auth,
+  orgContext,
+  requireOrg,
+  asyncHandler(async (req, res) => {
+    const title = String(req.body?.title || "").trim();
+    const content = String(req.body?.content || "").trim();
+    const excludeSongId = String(req.body?.excludeSongId || "").trim() || null;
+
+    if (!title && !content) {
+      return res.json({ matches: [] });
+    }
+
+    const rows = await db
+      .select({
+        id: songs.id,
+        title: songs.title,
+        aka: songs.aka,
+        artist: songs.artist,
+        key: songs.key,
+        updatedAt: songs.updatedAt,
+        content: songs.content,
+      })
+      .from(songs)
+      .where(eq(songs.organizationId, req.org.id));
+
+    const matches = buildDuplicateMatches(rows, { title, content, excludeSongId });
+    res.json({ matches });
+  })
+);
+
 // ── GET /api/songs/:id — get single song ─────────────────────
 songRoutes.get(
   "/:id",
@@ -1055,7 +1192,21 @@ songRoutes.put(
   auth,  orgContext,
   requireOrg,
   requireOrgRole("admin", "musician"),  asyncHandler(async (req, res) => {
-    const { title, aka, category, key, tempo, artist, shout, year, tags, content, isDraft } = req.body;
+    const {
+      title,
+      aka,
+      category,
+      key,
+      tempo,
+      artist,
+      shout,
+      year,
+      tags,
+      content,
+      isDraft,
+      lastKnownUpdatedAt,
+      forceOverwrite,
+    } = req.body;
 
     const [existing] = await db
       .select()
@@ -1065,6 +1216,18 @@ songRoutes.put(
 
     if (!existing) {
       throw createError(404, "Song not found");
+    }
+
+    if (!forceOverwrite && lastKnownUpdatedAt && existing.updatedAt) {
+      const existingUpdatedAt = new Date(existing.updatedAt).toISOString();
+      const providedUpdatedAt = new Date(lastKnownUpdatedAt).toISOString();
+
+      if (existingUpdatedAt !== providedUpdatedAt) {
+        return res.status(409).json({
+          error: { message: "This song was updated by someone else. Review the latest version before saving." },
+          currentSong: existing,
+        });
+      }
     }
 
     // Track field-level changes for edit history

@@ -12,6 +12,11 @@ const mockReorderSongs = vi.fn();
 const mockExportZip = vi.fn();
 const mockSongsList = vi.fn();
 const mockNavigate = vi.fn();
+const mockLoadCachedSetlist = vi.fn();
+const mockLoadCachedSetlistPerformanceContents = vi.fn();
+const mockSaveCachedSetlist = vi.fn();
+const mockSaveCachedSetlistPerformanceContents = vi.fn();
+const mockIsOfflineRequestError = vi.fn();
 
 vi.mock("@/lib/api-client", () => ({
   setlistsApi: {
@@ -36,7 +41,7 @@ vi.mock("react-router-dom", async () => {
 });
 
 vi.mock("sonner", () => ({
-  toast: { success: vi.fn(), error: vi.fn() },
+  toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() },
 }));
 
 vi.mock("@vpc-music/shared", () => ({
@@ -49,6 +54,14 @@ let mockAuthValue: any = {
 };
 vi.mock("@/contexts/AuthContext", () => ({
   useAuth: () => mockAuthValue,
+}));
+
+vi.mock("@/lib/offline-cache", () => ({
+  loadCachedSetlist: (...args: any[]) => mockLoadCachedSetlist(...args),
+  loadCachedSetlistPerformanceContents: (...args: any[]) => mockLoadCachedSetlistPerformanceContents(...args),
+  saveCachedSetlist: (...args: any[]) => mockSaveCachedSetlist(...args),
+  saveCachedSetlistPerformanceContents: (...args: any[]) => mockSaveCachedSetlistPerformanceContents(...args),
+  isOfflineRequestError: (...args: any[]) => mockIsOfflineRequestError(...args),
 }));
 
 const mockGoToSong = vi.fn();
@@ -100,6 +113,9 @@ describe("SetlistViewPage", () => {
       configurable: true,
       value: vi.fn(),
     });
+    mockLoadCachedSetlist.mockReturnValue(null);
+    mockLoadCachedSetlistPerformanceContents.mockReturnValue(new Map());
+    mockIsOfflineRequestError.mockReturnValue(false);
   });
 
   // ===================== POSITIVE =====================
@@ -201,6 +217,30 @@ describe("SetlistViewPage", () => {
       });
     });
 
+    it("supports drag-and-drop reordering", async () => {
+      mockGetSetlist.mockResolvedValue({ setlist: mockSetlist, songs: mockSongs });
+      mockReorderSongs.mockResolvedValue({ message: "ok" });
+      renderPage();
+
+      await waitFor(() => {
+        expect(screen.getAllByTitle("Drag to reorder")).toHaveLength(2);
+      });
+
+      const dragHandles = screen.getAllByTitle("Drag to reorder");
+      const songRows = document.querySelectorAll("[data-song-index]");
+
+      fireEvent.dragStart(dragHandles[0]);
+      fireEvent.dragOver(songRows[1]);
+      fireEvent.drop(songRows[1]);
+
+      await waitFor(() => {
+        expect(mockReorderSongs).toHaveBeenCalledWith("sl-1", [
+          { id: "item-2", position: 0 },
+          { id: "item-1", position: 1 },
+        ]);
+      });
+    });
+
     it("removes song from list", async () => {
       mockGetSetlist.mockResolvedValue({ setlist: mockSetlist, songs: [mockSongs[0]] });
       mockRemoveSong.mockResolvedValue({ message: "ok" });
@@ -241,6 +281,25 @@ describe("SetlistViewPage", () => {
       renderPage();
       await waitFor(() => {
         expect(screen.getByText("Back to setlists")).toHaveAttribute("href", "/setlists");
+      });
+    });
+
+    it("falls back to a cached setlist when offline", async () => {
+      mockGetSetlist.mockRejectedValue(new Error("Failed to fetch"));
+      mockIsOfflineRequestError.mockReturnValue(true);
+      mockLoadCachedSetlist.mockReturnValue({
+        id: "sl-1",
+        response: {
+          setlist: mockSetlist,
+          songs: mockSongs,
+        },
+      });
+
+      renderPage();
+
+      await waitFor(() => {
+        expect(screen.getByText("Sunday Service")).toBeInTheDocument();
+        expect(screen.getByText("Song A")).toBeInTheDocument();
       });
     });
 

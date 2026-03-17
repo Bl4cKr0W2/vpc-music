@@ -3,10 +3,12 @@ import { useParams, Link, useNavigate, useSearchParams } from "react-router-dom"
 import { songsApi, shareApi, songUsageApi, songHistoryApi, variationsApi, stickyNotesApi, setlistsApi, type Song, type SongUsage, type SongVariation, type SongEdit, type StickyNote, type Setlist } from "@/lib/api-client";
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { ChordProRenderer, AutoScroll, type ChordProRendererHandle } from "@/components/songs/ChordProRenderer";
+import { SongCollaborationPanel } from "@/components/songs/SongCollaborationPanel";
 import { ShareManageDialog } from "@/components/songs/ShareManageDialog";
 import { TempoIndicator } from "@/components/songs/TempoIndicator";
 import { useAuth } from "@/contexts/AuthContext";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
+import { isOfflineRequestError, loadCachedSong, saveCachedSong } from "@/lib/offline-cache";
 import { ALL_KEYS } from "@vpc-music/shared";
 import { toast } from "sonner";
 import { ArrowLeft, Edit, Trash2, Download, Eye, EyeOff, Share2, Check, Copy, CalendarPlus, History, X, Printer, Settings2, Hash, ChevronDown, Layers, Plus, Pencil, FileText, StickyNote as StickyNoteIcon } from "lucide-react";
@@ -134,8 +136,19 @@ export function SongViewPage() {
       .then((res) => {
         setSong(res.song);
         setVariations(res.variations || []);
+        saveCachedSong(res);
       })
-      .catch(() => toast.error("Song not found"))
+      .catch((error) => {
+        const cached = loadCachedSong(id);
+        if (cached && isOfflineRequestError(error)) {
+          setSong(cached.response.song);
+          setVariations(cached.response.variations || []);
+          toast.info("Showing cached song while offline");
+          return;
+        }
+
+        toast.error("Song not found");
+      })
       .finally(() => setLoading(false));
   }, [id]);
 
@@ -953,6 +966,12 @@ export function SongViewPage() {
           </p>
         )}
       </div>
+
+      <SongCollaborationPanel
+        songId={song.id}
+        sourceContent={displayContent}
+        canEdit={canEdit}
+      />
 
       {/* Quick Add to Setlist */}
       {showSetlistPicker && (

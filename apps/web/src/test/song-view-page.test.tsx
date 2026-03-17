@@ -4,6 +4,10 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { SongViewPage } from "@/pages/songs/SongViewPage";
 
+vi.mock("@/components/songs/SongCollaborationPanel", () => ({
+  SongCollaborationPanel: () => <div data-testid="song-collaboration-panel" />,
+}));
+
 // ---------- Mocks ----------
 const mockGet = vi.fn();
 const mockDelete = vi.fn();
@@ -12,6 +16,9 @@ const mockListSetlists = vi.fn();
 const mockAddToSetlist = vi.fn();
 const mockSetDefaultVariation = vi.fn();
 const mockNavigate = vi.fn();
+const mockLoadCachedSong = vi.fn();
+const mockSaveCachedSong = vi.fn();
+const mockIsOfflineRequestError = vi.fn();
 
 let mockAuthValue: any = {
   user: { id: "u1", email: "admin@test.com", displayName: "Admin", role: "owner" },
@@ -69,11 +76,17 @@ vi.mock("react-router-dom", async () => {
 });
 
 vi.mock("sonner", () => ({
-  toast: { success: vi.fn(), error: vi.fn() },
+  toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() },
 }));
 
 vi.mock("@/contexts/AuthContext", () => ({
   useAuth: () => mockAuthValue,
+}));
+
+vi.mock("@/lib/offline-cache", () => ({
+  loadCachedSong: (...args: any[]) => mockLoadCachedSong(...args),
+  saveCachedSong: (...args: any[]) => mockSaveCachedSong(...args),
+  isOfflineRequestError: (...args: any[]) => mockIsOfflineRequestError(...args),
 }));
 
 // Minimal mock for ChordProRenderer
@@ -122,6 +135,8 @@ describe("SongViewPage", () => {
     });
     mockListSetlists.mockResolvedValue({ setlists: [{ id: "sl-1", name: "Sunday Service", category: "worship", songCount: 4 }] });
     mockAddToSetlist.mockResolvedValue({ item: { id: "item-1", songId: "song-1", position: 0 } });
+    mockLoadCachedSong.mockReturnValue(null);
+    mockIsOfflineRequestError.mockReturnValue(false);
   });
 
   // ===================== POSITIVE =====================
@@ -342,6 +357,24 @@ describe("SongViewPage", () => {
       renderPage();
       await waitFor(() => {
         expect(screen.getByText("Back to songs")).toHaveAttribute("href", "/songs");
+      });
+    });
+
+    it("falls back to a cached song when offline", async () => {
+      mockGet.mockRejectedValue(new Error("Failed to fetch"));
+      mockIsOfflineRequestError.mockReturnValue(true);
+      mockLoadCachedSong.mockReturnValue({
+        id: "song-1",
+        response: {
+          song: { id: "song-1", title: "Cached Song", content: "[C]Cached", key: "C", tempo: 70, artist: "Offline" },
+          variations: [],
+        },
+      });
+
+      renderPage();
+
+      await waitFor(() => {
+        expect(screen.getByText("Cached Song")).toBeInTheDocument();
       });
     });
 

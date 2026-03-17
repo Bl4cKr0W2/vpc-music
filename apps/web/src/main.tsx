@@ -7,6 +7,7 @@ import { registerSW } from "virtual:pwa-register";
 import { router } from "./router";
 import { ThemeProvider, useTheme } from "./contexts/ThemeContext";
 import { AuthProvider } from "./contexts/AuthContext";
+import { ConnectivityProvider } from "./contexts/ConnectivityContext";
 import "./styles/index.css";
 
 // Register service worker — auto-update on new content
@@ -38,10 +39,12 @@ createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
-        <ThemeProvider>
-          <RouterProvider router={router} />
-          <ThemedToaster />
-        </ThemeProvider>
+        <ConnectivityProvider>
+          <ThemeProvider>
+            <RouterProvider router={router} />
+            <ThemedToaster />
+          </ThemeProvider>
+        </ConnectivityProvider>
       </AuthProvider>
     </QueryClientProvider>
   </StrictMode>

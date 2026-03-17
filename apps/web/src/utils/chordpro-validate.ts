@@ -5,7 +5,7 @@
  * with line numbers, severity, and human-readable messages.
  */
 
-import { CHORD_REGEX } from "@vpc-music/shared";
+import { correctChordSpelling } from "./chordpro-smart-tools";
 
 export type IssueSeverity = "error" | "warning";
 
@@ -13,6 +13,20 @@ export interface ValidationIssue {
   line: number;       // 1-based line number
   severity: IssueSeverity;
   message: string;
+  code?:
+    | "unclosed-bracket"
+    | "unexpected-closing-bracket"
+    | "unclosed-brace"
+    | "unexpected-closing-brace"
+    | "unknown-directive"
+    | "duplicate-directive"
+    | "missing-metadata"
+    | "malformed-chord";
+  directiveName?: "title" | "artist" | "key" | "tempo" | "capo" | "time";
+  firstLine?: number;
+  chordText?: string;
+  suggestedValue?: string;
+  suggestedFixLabel?: string;
 }
 
 /** Known directive names (same set as highlighter) */
@@ -74,6 +88,7 @@ export function validateChordPro(source: string): ValidationIssue[] {
             line: lineNum,
             severity: "warning",
             message: `Unknown directive: {${name}}`,
+            code: "unknown-directive",
           });
         }
 
@@ -85,6 +100,10 @@ export function validateChordPro(source: string): ValidationIssue[] {
               line: lineNum,
               severity: "warning",
               message: `Duplicate {${name}} — first seen on line ${seenDirectives.get(canonical)}`,
+              code: "duplicate-directive",
+              directiveName: canonical as ValidationIssue["directiveName"],
+              firstLine: seenDirectives.get(canonical),
+              suggestedFixLabel: "Remove duplicate",
             });
           } else {
             seenDirectives.set(canonical, lineNum);
@@ -110,6 +129,8 @@ export function validateChordPro(source: string): ValidationIssue[] {
             line: lineNum,
             severity: "error",
             message: "Unexpected `]` without matching `[`",
+            code: "unexpected-closing-bracket",
+            suggestedFixLabel: "Remove ]",
           });
         }
       } else if (ch === "{") {
@@ -122,6 +143,8 @@ export function validateChordPro(source: string): ValidationIssue[] {
             line: lineNum,
             severity: "error",
             message: "Unexpected `}` without matching `{`",
+            code: "unexpected-closing-brace",
+            suggestedFixLabel: "Remove }",
           });
         }
       }
@@ -132,6 +155,8 @@ export function validateChordPro(source: string): ValidationIssue[] {
         line: lineNum,
         severity: "error",
         message: "Missing closing `]` — unclosed chord bracket",
+        code: "unclosed-bracket",
+        suggestedFixLabel: "Add ]",
       });
     }
     if (openBraces > 0) {
@@ -139,6 +164,30 @@ export function validateChordPro(source: string): ValidationIssue[] {
         line: lineNum,
         severity: "error",
         message: "Missing closing `}` — unclosed brace",
+        code: "unclosed-brace",
+        suggestedFixLabel: "Add }",
+      });
+    }
+
+    for (const match of trimmed.matchAll(/\[([^\]]+)\]/g)) {
+      const chordText = match[1].trim();
+      if (!chordText) {
+        continue;
+      }
+
+      const suggestedValue = correctChordSpelling(chordText);
+      if (!suggestedValue || suggestedValue === chordText) {
+        continue;
+      }
+
+      issues.push({
+        line: lineNum,
+        severity: "warning",
+        message: `Chord spelling looks off: [${chordText}] → [${suggestedValue}]`,
+        code: "malformed-chord",
+        chordText,
+        suggestedValue,
+        suggestedFixLabel: `Use [${suggestedValue}]`,
       });
     }
   }
