@@ -11,14 +11,32 @@ const mockGetGroups = vi.fn();
 const mockGetCategories = vi.fn();
 const mockGetTags = vi.fn();
 const mockCreateGroup = vi.fn();
+const mockUpdateGroup = vi.fn();
+const mockDeleteGroup = vi.fn();
+const mockUpdateGroupManagers = vi.fn();
 const mockAddSongsToGroup = vi.fn();
+const mockListUsers = vi.fn();
+const mockListOrganizationTargets = vi.fn();
+const mockListBatchOrganizationShares = vi.fn();
+const mockUpdateBatchOrganizationShares = vi.fn();
 vi.mock("@/lib/api-client", () => ({
+  adminApi: {
+    listUsers: (...args: any[]) => mockListUsers(...args),
+  },
+  shareApi: {
+    listOrganizationTargets: (...args: any[]) => mockListOrganizationTargets(...args),
+    listBatchOrganizationShares: (...args: any[]) => mockListBatchOrganizationShares(...args),
+    updateBatchOrganizationShares: (...args: any[]) => mockUpdateBatchOrganizationShares(...args),
+  },
   songsApi: {
     list: (...args: any[]) => mockList(...args),
     getGroups: (...args: any[]) => mockGetGroups(...args),
     getCategories: (...args: any[]) => mockGetCategories(...args),
     getTags: (...args: any[]) => mockGetTags(...args),
     createGroup: (...args: any[]) => mockCreateGroup(...args),
+    updateGroup: (...args: any[]) => mockUpdateGroup(...args),
+    deleteGroup: (...args: any[]) => mockDeleteGroup(...args),
+    updateGroupManagers: (...args: any[]) => mockUpdateGroupManagers(...args),
     addSongsToGroup: (...args: any[]) => mockAddSongsToGroup(...args),
     exportZip: (...args: any[]) => mockExportZip(...args),
   },
@@ -52,11 +70,23 @@ describe("SongListPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useFakeTimers({ shouldAdvanceTime: true });
-    mockGetGroups.mockResolvedValue({ groups: [{ id: "group-1", name: "Wedding Songs", songCount: 2 }] });
+    mockGetGroups.mockResolvedValue({ groups: [{ id: "group-1", name: "Wedding Songs", songCount: 2, canManage: true, managerUserIds: [], managerNames: [] }] });
     mockGetCategories.mockResolvedValue({ categories: ["Church", "Wedding"] });
     mockGetTags.mockResolvedValue({ tags: ["hymn", "worship", "christmas"] });
     mockCreateGroup.mockResolvedValue({ group: { id: "group-2", name: "Choir Rehearsal", songCount: 0 } });
+    mockUpdateGroup.mockResolvedValue({ group: { id: "group-1", name: "Sunday Opener" } });
+    mockDeleteGroup.mockResolvedValue({ message: "Song group deleted" });
+    mockUpdateGroupManagers.mockResolvedValue({ groupId: "group-1", managerUserIds: ["u2"], managerNames: ["Band Member"] });
     mockAddSongsToGroup.mockResolvedValue({ addedSongIds: ["1"], skippedSongIds: [] });
+    mockListOrganizationTargets.mockResolvedValue({ organizations: [{ id: "org-2", name: "Mercy Chapel" }, { id: "org-3", name: "River City Worship" }] });
+    mockListBatchOrganizationShares.mockResolvedValue({ shares: [] });
+    mockUpdateBatchOrganizationShares.mockResolvedValue({ sharedSongs: 1, createdShares: 1, removedShares: 0, skippedShares: 0 });
+    mockListUsers.mockResolvedValue({
+      users: [
+        { id: "u1", email: "test@test.com", displayName: "Test", orgRole: "admin", globalRole: "owner", hasPassword: true, createdAt: "2026-01-01T00:00:00Z" },
+        { id: "u2", email: "band@test.com", displayName: "Band Member", orgRole: "observer", globalRole: "member", hasPassword: true, createdAt: "2026-01-01T00:00:00Z" },
+      ],
+    });
     mockExportZip.mockResolvedValue({ ok: true, blob: () => Promise.resolve(new Blob(["zip"])) });
     Object.defineProperty(URL, "createObjectURL", {
       writable: true,
@@ -68,7 +98,6 @@ describe("SongListPage", () => {
       configurable: true,
       value: vi.fn(),
     });
-
     const realCreateElement = document.createElement.bind(document);
     vi.spyOn(document, "createElement").mockImplementation(((tagName: string, options?: ElementCreationOptions) => {
       const element = realCreateElement(tagName, options);
@@ -102,6 +131,7 @@ describe("SongListPage", () => {
       mockList.mockResolvedValue({ songs: [], total: 0 });
       renderPage();
       expect(screen.getByPlaceholderText(/search songs/i)).toBeInTheDocument();
+      expect(screen.getByLabelText(/song scope/i)).toBeInTheDocument();
       expect(screen.getByLabelText(/filter by group/i)).toBeInTheDocument();
       expect(screen.getByLabelText(/filter by category/i)).toBeInTheDocument();
       expect(screen.getByText("All keys")).toBeInTheDocument();
@@ -158,6 +188,7 @@ describe("SongListPage", () => {
       await waitFor(() => {
         expect(mockList).toHaveBeenLastCalledWith({
           q: undefined,
+          scope: undefined,
           groupId: undefined,
           category: "Church",
           key: undefined,
@@ -180,6 +211,7 @@ describe("SongListPage", () => {
       await waitFor(() => {
         expect(mockList).toHaveBeenLastCalledWith({
           q: undefined,
+          scope: undefined,
           groupId: "group-1",
           category: undefined,
           key: undefined,
@@ -189,6 +221,31 @@ describe("SongListPage", () => {
           offset: 0,
         });
       });
+    });
+
+    it("requests shared songs when the shared scope is selected", async () => {
+      mockList.mockResolvedValue({ songs: [], total: 0 });
+      renderPage();
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+
+      await screen.findByLabelText(/song scope/i);
+      await user.selectOptions(screen.getByLabelText(/song scope/i), "shared");
+
+      await waitFor(() => {
+        expect(mockList).toHaveBeenLastCalledWith({
+          q: undefined,
+          scope: "shared",
+          groupId: undefined,
+          category: undefined,
+          key: undefined,
+          tag: undefined,
+          sort: "lastEdited",
+          limit: 50,
+          offset: 0,
+        });
+      });
+
+      expect(screen.getByLabelText(/filter by group/i)).toBeDisabled();
     });
 
     it("shows song count", async () => {
@@ -213,6 +270,48 @@ describe("SongListPage", () => {
       renderPage();
       await waitFor(() => {
         expect(screen.getByText(/2 songs/)).toBeInTheDocument();
+      });
+    });
+
+    it("shows the source organization for directly shared songs", async () => {
+      mockList.mockResolvedValue({
+        songs: [{ id: "1", title: "Shared Song", artist: "Leader", sharedWithMe: true, organizationName: "Grace Church" }],
+        total: 1,
+      });
+      renderPage();
+
+      await waitFor(() => {
+        expect(screen.getByText(/Shared from: Grace Church/)).toBeInTheDocument();
+      });
+    });
+
+    it("allows admins to batch share selected songs with other organizations", async () => {
+      mockAuthValue = {
+        user: { id: "u1", email: "test@test.com", displayName: "Test", role: "member" },
+        activeOrg: { id: "org1", name: "Test Church", role: "admin" },
+      };
+      mockList.mockResolvedValue({
+        songs: [{ id: "1", title: "Amazing Grace", key: "G", content: "" }],
+        total: 1,
+      });
+      renderPage();
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+
+      await screen.findByText("Amazing Grace");
+      await user.click(screen.getByLabelText(/select amazing grace/i));
+      await user.click(screen.getByRole("button", { name: /share to organizations/i }));
+
+      expect(mockListOrganizationTargets).toHaveBeenCalledTimes(1);
+      expect(mockListBatchOrganizationShares).toHaveBeenCalledWith(["1"]);
+      await user.click(await screen.findByRole("button", { name: /share selected songs with mercy chapel/i }));
+      await user.click(screen.getByRole("button", { name: /save share changes/i }));
+
+      await waitFor(() => {
+        expect(mockUpdateBatchOrganizationShares).toHaveBeenCalledWith({
+          songIds: ["1"],
+          addOrganizationIds: ["org-2"],
+          removeOrganizationIds: [],
+        });
       });
     });
 
@@ -246,6 +345,7 @@ describe("SongListPage", () => {
       await waitFor(() => {
         expect(mockList).toHaveBeenLastCalledWith({
           q: undefined,
+          scope: undefined,
           groupId: undefined,
           category: undefined,
           key: undefined,
@@ -267,6 +367,7 @@ describe("SongListPage", () => {
       await waitFor(() => {
         expect(mockList).toHaveBeenLastCalledWith({
           q: undefined,
+          scope: undefined,
           groupId: undefined,
           category: undefined,
           key: undefined,
@@ -290,6 +391,7 @@ describe("SongListPage", () => {
       await waitFor(() => {
         expect(mockList).toHaveBeenLastCalledWith({
           q: undefined,
+          scope: undefined,
           groupId: undefined,
           category: undefined,
           key: undefined,
@@ -340,6 +442,7 @@ describe("SongListPage", () => {
       await waitFor(() => {
         expect(mockList).toHaveBeenLastCalledWith({
           q: undefined,
+          scope: undefined,
           groupId: undefined,
           category: undefined,
           key: undefined,
@@ -384,6 +487,7 @@ describe("SongListPage", () => {
       await waitFor(() => {
         expect(mockList).toHaveBeenLastCalledWith({
           q: "reset",
+          scope: undefined,
           groupId: undefined,
           category: undefined,
           key: undefined,
@@ -462,6 +566,78 @@ describe("SongListPage", () => {
       await waitFor(() => {
         expect(mockCreateGroup).toHaveBeenCalledWith({ name: "Choir Rehearsal" });
         expect(mockAddSongsToGroup).toHaveBeenCalledWith("group-2", ["1"]);
+      });
+    });
+
+    it("updates delegated group managers from the groups modal", async () => {
+      mockList.mockResolvedValue({
+        songs: [{ id: "1", title: "Amazing Grace", key: "G", content: "" }],
+        total: 1,
+      });
+      mockGetGroups.mockResolvedValue({
+        groups: [{ id: "group-1", name: "Wedding Songs", songCount: 2, canManage: true, managerUserIds: [], managerNames: [] }],
+      });
+      renderPage();
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+
+      await waitFor(() => {
+        expect(screen.getByText("Amazing Grace")).toBeInTheDocument();
+      });
+
+      await user.click(screen.getByRole("button", { name: /groups/i }));
+
+      const managerSelect = screen.getByLabelText(/delegated managers for wedding songs/i);
+      await user.selectOptions(managerSelect, "u2");
+      await user.click(screen.getByRole("button", { name: /save managers/i }));
+
+      await waitFor(() => {
+        expect(mockUpdateGroupManagers).toHaveBeenCalledWith("group-1", ["u2"]);
+      });
+    });
+
+    it("renames an existing group from the groups modal", async () => {
+      mockList.mockResolvedValue({
+        songs: [{ id: "1", title: "Amazing Grace", key: "G", content: "" }],
+        total: 1,
+      });
+      renderPage();
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+
+      await waitFor(() => {
+        expect(screen.getByText("Amazing Grace")).toBeInTheDocument();
+      });
+
+      await user.click(screen.getByRole("button", { name: /groups/i }));
+      await user.click(screen.getByRole("button", { name: /rename wedding songs/i }));
+
+      const renameInput = screen.getByLabelText(/rename wedding songs/i);
+      await user.clear(renameInput);
+      await user.type(renameInput, "Sunday Opener");
+      await user.click(screen.getByRole("button", { name: /^save$/i }));
+
+      await waitFor(() => {
+        expect(mockUpdateGroup).toHaveBeenCalledWith("group-1", { name: "Sunday Opener" });
+      });
+    });
+
+    it("deletes a group from the groups modal", async () => {
+      mockList.mockResolvedValue({
+        songs: [{ id: "1", title: "Amazing Grace", key: "G", content: "" }],
+        total: 1,
+      });
+      renderPage();
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+
+      await waitFor(() => {
+        expect(screen.getByText("Amazing Grace")).toBeInTheDocument();
+      });
+
+      await user.click(screen.getByRole("button", { name: /groups/i }));
+      await user.click(screen.getByRole("button", { name: /delete wedding songs/i }));
+      await user.click(screen.getByRole("button", { name: /delete group/i }));
+
+      await waitFor(() => {
+        expect(mockDeleteGroup).toHaveBeenCalledWith("group-1");
       });
     });
   });

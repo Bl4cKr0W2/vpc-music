@@ -249,13 +249,18 @@ export function CommandPalette({ open, onClose, onSelect, initialQuery = "" }: C
         if (e.target === e.currentTarget) onClose();
       }}
       data-testid="command-palette-backdrop"
+      role="presentation"
     >
       <div
         className="w-full max-w-md rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--popover))] shadow-2xl"
         data-testid="command-palette"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="command-palette-title"
       >
         {/* Search input */}
         <div className="flex items-center gap-2 border-b border-[hsl(var(--border))] px-3 py-2">
+          <span id="command-palette-title" className="sr-only">Command palette</span>
           <Search className="h-4 w-4 text-[hsl(var(--muted-foreground))]" />
           <input
             ref={inputRef}
@@ -269,6 +274,7 @@ export function CommandPalette({ open, onClose, onSelect, initialQuery = "" }: C
             placeholder="Search commands… (sections, directives, templates)"
             className="flex-1 bg-transparent text-sm text-[hsl(var(--foreground))] placeholder:text-[hsl(var(--muted-foreground))] focus:outline-none"
             data-testid="command-palette-input"
+            aria-label="Search editor commands"
           />
           <kbd className="rounded border border-[hsl(var(--border))] bg-[hsl(var(--muted))] px-1.5 py-0.5 text-[10px] font-mono text-[hsl(var(--muted-foreground))]">
             Esc
@@ -276,7 +282,7 @@ export function CommandPalette({ open, onClose, onSelect, initialQuery = "" }: C
         </div>
 
         {/* Results */}
-        <div ref={listRef} className="max-h-64 overflow-y-auto py-1" data-testid="command-palette-results">
+        <div ref={listRef} className="max-h-64 overflow-y-auto py-1" data-testid="command-palette-results" role="listbox" aria-label="Available editor commands">
           {allFiltered.length === 0 ? (
             <div className="px-3 py-4 text-center text-sm text-[hsl(var(--muted-foreground))]">
               No matching commands

@@ -7,9 +7,9 @@ import { tokenizeChordPro, type Token } from "@/utils/chordpro-highlight";
  * so the colored tokens visually replace the transparent textarea text.
  */
 const TOKEN_CLASSES: Record<string, string> = {
-  chord: "text-[hsl(var(--secondary))] font-bold",       // Gold for chords
+  chord: "song-primary-chord font-bold",
   directive: "text-sky-400",                               // Blue for directives
-  section: "text-[hsl(var(--secondary))] font-bold italic", // Gold + bold for section headers
+  section: "song-secondary-chord font-bold italic",
   lyrics: "text-[hsl(var(--foreground))]",                 // Default text
   invalid: "text-red-400 underline decoration-wavy decoration-red-400", // Red wavy underline
 };
@@ -33,7 +33,7 @@ export const SyntaxHighlightOverlay = forwardRef<HTMLPreElement, SyntaxHighlight
     return (
       <pre
         ref={ref}
-        className="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words px-3 py-2 font-mono text-sm leading-[20px]"
+        className="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap wrap-break-word px-3 py-2 font-mono text-sm leading-5"
         aria-hidden="true"
         data-testid="syntax-overlay"
       >

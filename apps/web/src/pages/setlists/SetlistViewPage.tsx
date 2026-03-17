@@ -32,6 +32,7 @@ import {
 import { ALL_KEYS } from "@vpc-music/shared";
 import { useConductor } from "@/hooks/useConductor";
 import { PerformanceMode } from "@/components/setlists/PerformanceMode";
+import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { getKeyDistance } from "@/utils/key-compat";
 
 export function SetlistViewPage() {
@@ -44,6 +45,8 @@ export function SetlistViewPage() {
   const [loading, setLoading] = useState(true);
   const [showAddSong, setShowAddSong] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deletingSetlist, setDeletingSetlist] = useState(false);
   const [availableSongs, setAvailableSongs] = useState<Song[]>([]);
   const [searchQ, setSearchQ] = useState("");
 
@@ -205,13 +208,17 @@ export function SetlistViewPage() {
   };
 
   const handleDeleteSetlist = async () => {
-    if (!id || !confirm("Delete this setlist permanently?")) return;
+    if (!id) return;
+    setDeletingSetlist(true);
     try {
       await setlistsApi.delete(id);
       toast.success("Setlist deleted");
       navigate("/setlists");
     } catch (err: any) {
       toast.error(err.message || "Failed to delete");
+    } finally {
+      setDeletingSetlist(false);
+      setShowDeleteConfirm(false);
     }
   };
 
@@ -307,7 +314,7 @@ export function SetlistViewPage() {
               </button>
             )}
             <button
-              onClick={handleDeleteSetlist}
+              onClick={() => setShowDeleteConfirm(true)}
               className="btn-destructive btn-sm"
             >
               <Trash2 className="h-3.5 w-3.5" /> Delete
@@ -445,6 +452,20 @@ export function SetlistViewPage() {
           </div>
         )}
       </div>
+
+      <ConfirmDialog
+        open={showDeleteConfirm}
+        title={setlist ? `Delete \"${setlist.name}\"?` : "Delete setlist?"}
+        description="This permanently removes the setlist from your library."
+        confirmLabel="Delete setlist"
+        busy={deletingSetlist}
+        onClose={() => {
+          if (!deletingSetlist) {
+            setShowDeleteConfirm(false);
+          }
+        }}
+        onConfirm={handleDeleteSetlist}
+      />
 
       {/* Song list */}
       <div className="space-y-2">

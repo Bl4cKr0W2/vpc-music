@@ -1,7 +1,15 @@
 import { useState, useEffect, useCallback } from "react";
-import { shareApi, type ShareToken } from "@/lib/api-client";
+import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
+import { adminApi, shareApi, type DirectSongShare, type OrgUser, type ShareTeam, type ShareToken, type SongTeamShare } from "@/lib/api-client";
 import { toast } from "sonner";
 import { X, Copy, Check, ExternalLink, Ban, Plus, Tag, Loader2 } from "lucide-react";
+
+interface ConfirmState {
+  title: string;
+  description: string;
+  confirmLabel: string;
+  action: () => Promise<void>;
+}
 
 interface ShareManageDialogProps {
   songId: string;
@@ -17,21 +25,47 @@ interface ShareManageDialogProps {
  */
 export function ShareManageDialog({ songId, open, onClose }: ShareManageDialogProps) {
   const [shares, setShares] = useState<ShareToken[]>([]);
+  const [directShares, setDirectShares] = useState<DirectSongShare[]>([]);
+  const [teams, setTeams] = useState<ShareTeam[]>([]);
+  const [teamShares, setTeamShares] = useState<SongTeamShare[]>([]);
+  const [orgMembers, setOrgMembers] = useState<OrgUser[]>([]);
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [creatingDirectShare, setCreatingDirectShare] = useState(false);
+  const [creatingTeam, setCreatingTeam] = useState(false);
+  const [sharingTeamId, setSharingTeamId] = useState<string | null>(null);
   const [newLabel, setNewLabel] = useState("");
   const [newExpiry, setNewExpiry] = useState("");
+  const [newDirectShareEmail, setNewDirectShareEmail] = useState("");
+  const [newTeamName, setNewTeamName] = useState("");
+  const [newTeamMemberIds, setNewTeamMemberIds] = useState<string[]>([]);
+  const [selectedTeamId, setSelectedTeamId] = useState("");
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editLabel, setEditLabel] = useState("");
+  const [removingDirectShareId, setRemovingDirectShareId] = useState<string | null>(null);
+  const [deletingTeamId, setDeletingTeamId] = useState<string | null>(null);
+  const [removingTeamShareId, setRemovingTeamShareId] = useState<string | null>(null);
+  const [confirmState, setConfirmState] = useState<ConfirmState | null>(null);
+  const [confirmingAction, setConfirmingAction] = useState(false);
 
   const loadShares = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await shareApi.list(songId);
+      const [res, directRes, teamsRes, teamSharesRes, membersRes] = await Promise.all([
+        shareApi.list(songId),
+        shareApi.listDirect(songId),
+        shareApi.listTeams(),
+        shareApi.listTeamShares(songId),
+        adminApi.listUsers(),
+      ]);
       setShares(res.shares);
+      setDirectShares(directRes.directShares);
+      setTeams(teamsRes.teams);
+      setTeamShares(teamSharesRes.teamShares);
+      setOrgMembers(membersRes.users);
     } catch {
-      toast.error("Failed to load share links");
+      toast.error("Failed to load sharing settings");
     } finally {
       setLoading(false);
     }
@@ -42,6 +76,10 @@ export function ShareManageDialog({ songId, open, onClose }: ShareManageDialogPr
       loadShares();
       setNewLabel("");
       setNewExpiry("");
+      setNewDirectShareEmail("");
+      setNewTeamName("");
+      setNewTeamMemberIds([]);
+      setSelectedTeamId("");
     }
   }, [open, loadShares]);
 
@@ -73,14 +111,16 @@ export function ShareManageDialog({ songId, open, onClose }: ShareManageDialogPr
   };
 
   const handleRevoke = async (tokenId: string) => {
-    if (!confirm("Revoke this share link? It will no longer be accessible.")) return;
-    try {
-      await shareApi.revoke(songId, tokenId);
-      setShares((prev) => prev.map((s) => (s.id === tokenId ? { ...s, revoked: true } : s)));
-      toast.success("Share link revoked");
-    } catch (err: any) {
-      toast.error(err.message || "Failed to revoke");
-    }
+    setConfirmState({
+      title: "Revoke this share link?",
+      description: "It will no longer be accessible.",
+      confirmLabel: "Revoke link",
+      action: async () => {
+        await shareApi.revoke(songId, tokenId);
+        setShares((prev) => prev.map((s) => (s.id === tokenId ? { ...s, revoked: true } : s)));
+        toast.success("Share link revoked");
+      },
+    });
   };
 
   const handleStartEdit = (share: ShareToken) => {
@@ -100,6 +140,148 @@ export function ShareManageDialog({ songId, open, onClose }: ShareManageDialogPr
       toast.success("Label updated");
     } catch (err: any) {
       toast.error(err.message || "Failed to update label");
+    }
+  };
+
+  const handleCreateDirectShare = async () => {
+    const email = newDirectShareEmail.trim();
+    if (!email) {
+      toast.error("Email is required");
+      return;
+    }
+
+    setCreatingDirectShare(true);
+    try {
+      const res = await shareApi.createDirect(songId, { email });
+      setDirectShares((prev) => {
+        const withoutExisting = prev.filter((share) => share.id !== res.directShare.id && share.userId !== res.directShare.userId);
+        return [...withoutExisting, res.directShare];
+      });
+      setNewDirectShareEmail("");
+      toast.success("Song shared with user");
+    } catch (err: any) {
+      toast.error(err.message || "Failed to share song");
+    } finally {
+      setCreatingDirectShare(false);
+    }
+  };
+
+  const handleRemoveDirectShare = async (shareId: string) => {
+    setConfirmState({
+      title: "Remove this direct song share?",
+      description: "The selected user will lose direct access to this song.",
+      confirmLabel: "Remove share",
+      action: async () => {
+        setRemovingDirectShareId(shareId);
+        try {
+          await shareApi.removeDirect(songId, shareId);
+          setDirectShares((prev) => prev.filter((share) => share.id !== shareId));
+          toast.success("Direct share removed");
+        } finally {
+          setRemovingDirectShareId(null);
+        }
+      },
+    });
+  };
+
+  const handleCreateTeam = async () => {
+    const name = newTeamName.trim();
+    if (!name) {
+      toast.error("Team name is required");
+      return;
+    }
+
+    if (newTeamMemberIds.length === 0) {
+      toast.error("Select at least one team member");
+      return;
+    }
+
+    setCreatingTeam(true);
+    try {
+      const res = await shareApi.createTeam({ name, userIds: newTeamMemberIds });
+      setTeams((prev) => [...prev, res.team]);
+      setNewTeamName("");
+      setNewTeamMemberIds([]);
+      setSelectedTeamId(res.team.id);
+      toast.success("Share team created");
+    } catch (err: any) {
+      toast.error(err.message || "Failed to create team");
+    } finally {
+      setCreatingTeam(false);
+    }
+  };
+
+  const handleShareWithTeam = async () => {
+    if (!selectedTeamId) {
+      toast.error("Choose a team first");
+      return;
+    }
+
+    setSharingTeamId(selectedTeamId);
+    try {
+      const res = await shareApi.createTeamShare(songId, { teamId: selectedTeamId });
+      setTeamShares((prev) => {
+        const withoutExisting = prev.filter((share) => share.id !== res.teamShare.id && share.teamId !== res.teamShare.teamId);
+        return [...withoutExisting, res.teamShare];
+      });
+      toast.success("Song shared with team");
+    } catch (err: any) {
+      toast.error(err.message || "Failed to share song with team");
+    } finally {
+      setSharingTeamId(null);
+    }
+  };
+
+  const handleDeleteTeam = async (teamId: string) => {
+    setConfirmState({
+      title: "Delete this share team?",
+      description: "Songs shared to it will lose team access.",
+      confirmLabel: "Delete team",
+      action: async () => {
+        setDeletingTeamId(teamId);
+        try {
+          await shareApi.deleteTeam(teamId);
+          setTeams((prev) => prev.filter((team) => team.id !== teamId));
+          setTeamShares((prev) => prev.filter((share) => share.teamId !== teamId));
+          if (selectedTeamId === teamId) {
+            setSelectedTeamId("");
+          }
+          toast.success("Share team deleted");
+        } finally {
+          setDeletingTeamId(null);
+        }
+      },
+    });
+  };
+
+  const handleRemoveTeamShare = async (shareId: string) => {
+    setConfirmState({
+      title: "Remove this team song share?",
+      description: "The shared team will lose access to this song.",
+      confirmLabel: "Remove team share",
+      action: async () => {
+        setRemovingTeamShareId(shareId);
+        try {
+          await shareApi.removeTeamShare(songId, shareId);
+          setTeamShares((prev) => prev.filter((share) => share.id !== shareId));
+          toast.success("Team share removed");
+        } finally {
+          setRemovingTeamShareId(null);
+        }
+      },
+    });
+  };
+
+  const handleConfirmAction = async () => {
+    if (!confirmState) return;
+    setConfirmingAction(true);
+    try {
+      await confirmState.action();
+      setConfirmState(null);
+    } catch (err: any) {
+      toast.error(err.message || "Action failed");
+    } finally {
+      setConfirmingAction(false);
     }
   };
 
@@ -123,6 +305,7 @@ export function ShareManageDialog({ songId, open, onClose }: ShareManageDialogPr
 
   const activeShares = shares.filter((s) => !s.revoked);
   const revokedShares = shares.filter((s) => s.revoked);
+  const availableTeams = teams.filter((team) => !teamShares.some((share) => share.teamId === team.id));
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 print-hidden">
@@ -179,6 +362,203 @@ export function ShareManageDialog({ songId, open, onClose }: ShareManageDialogPr
                 Create
               </button>
             </div>
+          </div>
+
+          <hr className="border-[hsl(var(--border))]" />
+
+          <div className="space-y-3">
+            <div>
+              <h4 className="text-sm font-medium text-[hsl(var(--foreground))]">
+                Share with Specific Users
+              </h4>
+              <p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">
+                Grant access to signed-in users without creating a public link.
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <input
+                type="email"
+                value={newDirectShareEmail}
+                onChange={(e) => setNewDirectShareEmail(e.target.value)}
+                placeholder="User email"
+                className="flex-1 rounded-md border border-[hsl(var(--input))] bg-[hsl(var(--background))] px-3 py-2 text-sm text-[hsl(var(--foreground))] placeholder:text-[hsl(var(--muted-foreground))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))]"
+              />
+              <button
+                onClick={handleCreateDirectShare}
+                disabled={creatingDirectShare}
+                className="inline-flex items-center gap-1.5 rounded-md bg-[hsl(var(--secondary))] px-3 py-2 text-sm font-medium text-[hsl(var(--secondary-foreground))] hover:opacity-90 transition-opacity disabled:opacity-50"
+              >
+                {creatingDirectShare ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Plus className="h-4 w-4" />
+                )}
+                Share
+              </button>
+            </div>
+
+            {directShares.length === 0 ? (
+              <p className="text-sm text-[hsl(var(--muted-foreground))]">
+                No direct user shares yet.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {directShares.map((share) => (
+                  <div
+                    key={share.id}
+                    className="flex items-center justify-between gap-3 rounded-md border border-[hsl(var(--border))] px-3 py-2"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-[hsl(var(--foreground))]">
+                        {share.displayName || share.email}
+                      </p>
+                      {share.displayName && (
+                        <p className="truncate text-xs text-[hsl(var(--muted-foreground))]">
+                          {share.email}
+                        </p>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveDirectShare(share.id)}
+                      disabled={removingDirectShareId === share.id}
+                      className="rounded-md border border-[hsl(var(--border))] px-2.5 py-1.5 text-xs text-[hsl(var(--foreground))] hover:bg-[hsl(var(--muted))] disabled:opacity-50"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <hr className="border-[hsl(var(--border))]" />
+
+          <div className="space-y-3">
+            <div>
+              <h4 className="text-sm font-medium text-[hsl(var(--foreground))]">
+                Share with Teams
+              </h4>
+              <p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">
+                Share this song with a reusable team of organization members.
+              </p>
+            </div>
+
+            <div className="flex gap-2">
+              <select
+                value={selectedTeamId}
+                onChange={(e) => setSelectedTeamId(e.target.value)}
+                className="flex-1 rounded-md border border-[hsl(var(--input))] bg-[hsl(var(--background))] px-3 py-2 text-sm text-[hsl(var(--foreground))]"
+              >
+                <option value="">Select a team</option>
+                {availableTeams.map((team) => (
+                  <option key={team.id} value={team.id}>
+                    {team.name} ({team.memberCount})
+                  </option>
+                ))}
+              </select>
+              <button
+                onClick={handleShareWithTeam}
+                disabled={!selectedTeamId || sharingTeamId === selectedTeamId}
+                className="inline-flex items-center gap-1.5 rounded-md bg-[hsl(var(--secondary))] px-3 py-2 text-sm font-medium text-[hsl(var(--secondary-foreground))] hover:opacity-90 transition-opacity disabled:opacity-50"
+              >
+                {sharingTeamId === selectedTeamId ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                Share
+              </button>
+            </div>
+
+            {teamShares.length === 0 ? (
+              <p className="text-sm text-[hsl(var(--muted-foreground))]">
+                This song is not shared with any teams yet.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {teamShares.map((share) => (
+                  <div
+                    key={share.id}
+                    className="flex items-center justify-between gap-3 rounded-md border border-[hsl(var(--border))] px-3 py-2"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-[hsl(var(--foreground))]">{share.teamName}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveTeamShare(share.id)}
+                      disabled={removingTeamShareId === share.id}
+                      className="rounded-md border border-[hsl(var(--border))] px-2.5 py-1.5 text-xs text-[hsl(var(--foreground))] hover:bg-[hsl(var(--muted))] disabled:opacity-50"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <hr className="border-[hsl(var(--border))]" />
+
+          <div className="space-y-3">
+            <div>
+              <h4 className="text-sm font-medium text-[hsl(var(--foreground))]">
+                Create Share Team
+              </h4>
+              <p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">
+                Create a reusable team for sharing songs with the same group of members.
+              </p>
+            </div>
+            <input
+              type="text"
+              value={newTeamName}
+              onChange={(e) => setNewTeamName(e.target.value)}
+              placeholder="Band, vocals, youth team..."
+              className="w-full rounded-md border border-[hsl(var(--input))] bg-[hsl(var(--background))] px-3 py-2 text-sm text-[hsl(var(--foreground))] placeholder:text-[hsl(var(--muted-foreground))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))]"
+            />
+            <select
+              multiple
+              value={newTeamMemberIds}
+              onChange={(e) => setNewTeamMemberIds(Array.from(e.target.selectedOptions).map((option) => option.value))}
+              className="min-h-28 w-full rounded-md border border-[hsl(var(--input))] bg-[hsl(var(--background))] px-3 py-2 text-sm text-[hsl(var(--foreground))]"
+            >
+              {orgMembers.map((member) => (
+                <option key={member.id} value={member.id}>
+                  {(member.displayName || member.email)} — {member.orgRole}
+                </option>
+              ))}
+            </select>
+            <button
+              onClick={handleCreateTeam}
+              disabled={creatingTeam}
+              className="inline-flex items-center gap-1.5 rounded-md bg-[hsl(var(--secondary))] px-3 py-2 text-sm font-medium text-[hsl(var(--secondary-foreground))] hover:opacity-90 transition-opacity disabled:opacity-50"
+            >
+              {creatingTeam ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+              Create Team
+            </button>
+
+            {teams.length > 0 && (
+              <div className="space-y-2">
+                {teams.map((team) => (
+                  <div
+                    key={team.id}
+                    className="flex items-start justify-between gap-3 rounded-md border border-[hsl(var(--border))] px-3 py-2"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-[hsl(var(--foreground))]">{team.name}</p>
+                      <p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">
+                        {team.memberNames.join(", ")}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteTeam(team.id)}
+                      disabled={deletingTeamId === team.id}
+                      className="rounded-md border border-[hsl(var(--border))] px-2.5 py-1.5 text-xs text-[hsl(var(--foreground))] hover:bg-[hsl(var(--muted))] disabled:opacity-50"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Divider */}
@@ -261,6 +641,20 @@ export function ShareManageDialog({ songId, open, onClose }: ShareManageDialogPr
           </button>
         </div>
       </div>
+
+      <ConfirmDialog
+        open={Boolean(confirmState)}
+        title={confirmState?.title ?? "Confirm action"}
+        description={confirmState?.description}
+        confirmLabel={confirmState?.confirmLabel}
+        busy={confirmingAction}
+        onClose={() => {
+          if (!confirmingAction) {
+            setConfirmState(null);
+          }
+        }}
+        onConfirm={handleConfirmAction}
+      />
     </div>
   );
 }

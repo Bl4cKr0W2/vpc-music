@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/contexts/AuthContext";
+import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { adminApi, type OrgUser } from "@/lib/api-client";
 import { toast } from "sonner";
 import { roleLabel, ROLE_DESCRIPTIONS } from "@vpc-music/shared";
@@ -46,6 +47,8 @@ export function AdminPage() {
 
   // Invite link copy state
   const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
+  const [pendingRemoveMember, setPendingRemoveMember] = useState<OrgUser | null>(null);
+  const [removingMemberId, setRemovingMemberId] = useState<string | null>(null);
 
   const isAdmin =
     activeOrg?.role === "admin" || user?.role === "owner";
@@ -128,19 +131,18 @@ export function AdminPage() {
     }
   };
 
-  const handleRemove = async (member: OrgUser) => {
-    if (
-      !confirm(
-        `Remove ${member.displayName || member.email} from the organization?`,
-      )
-    )
-      return;
+  const handleRemove = async () => {
+    if (!pendingRemoveMember) return;
+    setRemovingMemberId(pendingRemoveMember.id);
     try {
-      const res = await adminApi.removeMember(member.id);
+      const res = await adminApi.removeMember(pendingRemoveMember.id);
       toast.success(res.message);
-      setMembers((prev) => prev.filter((m) => m.id !== member.id));
+      setMembers((prev) => prev.filter((m) => m.id !== pendingRemoveMember.id));
+      setPendingRemoveMember(null);
     } catch (err: any) {
       toast.error(err.message || "Failed to remove member");
+    } finally {
+      setRemovingMemberId(null);
     }
   };
 
@@ -318,7 +320,7 @@ export function AdminPage() {
 
                   {/* Remove button */}
                   <button
-                    onClick={() => handleRemove(member)}
+                    onClick={() => setPendingRemoveMember(member)}
                     disabled={isSelf}
                     className={`p-1.5 rounded-md transition-colors ${
                       isSelf
@@ -335,6 +337,20 @@ export function AdminPage() {
           </ul>
         )}
       </div>
+
+      <ConfirmDialog
+        open={Boolean(pendingRemoveMember)}
+        title={pendingRemoveMember ? `Remove ${pendingRemoveMember.displayName || pendingRemoveMember.email}?` : "Remove member?"}
+        description="This removes the member from the current organization."
+        confirmLabel="Remove member"
+        busy={removingMemberId === pendingRemoveMember?.id}
+        onClose={() => {
+          if (!removingMemberId) {
+            setPendingRemoveMember(null);
+          }
+        }}
+        onConfirm={handleRemove}
+      />
     </div>
   );
 }

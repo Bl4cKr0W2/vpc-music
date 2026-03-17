@@ -104,6 +104,8 @@ export interface Song {
   content: string;
   isDraft?: boolean;
   defaultVariationId?: string | null;
+  sharedWithMe?: boolean;
+  organizationName?: string | null;
   createdBy?: string | null;
   createdAt?: string;
   updatedAt?: string;
@@ -124,6 +126,10 @@ export interface SongGroup {
   id: string;
   name: string;
   songCount?: number;
+  managers?: Array<{ userId: string; name: string }>;
+  managerUserIds?: string[];
+  managerNames?: string[];
+  canManage?: boolean;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -139,10 +145,11 @@ export interface ImportPreviewResponse {
 }
 
 export const songsApi = {
-  list: (params?: { q?: string; groupId?: string; category?: string; tag?: string; key?: string; tempoMin?: number; tempoMax?: number; sort?: "lastEdited" | "title" | "recentlyAdded" | "mostUsed"; limit?: number; offset?: number }) => {
+  list: (params?: { q?: string; groupId?: string; scope?: "organization" | "shared"; category?: string; tag?: string; key?: string; tempoMin?: number; tempoMax?: number; sort?: "lastEdited" | "title" | "recentlyAdded" | "mostUsed"; limit?: number; offset?: number }) => {
     const qs = new URLSearchParams();
     if (params?.q) qs.set("q", params.q);
     if (params?.groupId) qs.set("groupId", params.groupId);
+    if (params?.scope) qs.set("scope", params.scope);
     if (params?.category) qs.set("category", params.category);
     if (params?.tag) qs.set("tag", params.tag);
     if (params?.key) qs.set("key", params.key);
@@ -162,6 +169,11 @@ export const songsApi = {
     request<{ group: SongGroup }>(`/api/songs/groups/${groupId}`, { method: "PUT", body: JSON.stringify(data) }),
   deleteGroup: (groupId: string) =>
     request<{ message: string }>(`/api/songs/groups/${groupId}`, { method: "DELETE" }),
+  updateGroupManagers: (groupId: string, userIds: string[]) =>
+    request<{ groupId: string; managerUserIds: string[]; managerNames: string[] }>(`/api/songs/groups/${groupId}/managers`, {
+      method: "PUT",
+      body: JSON.stringify({ userIds }),
+    }),
   addSongsToGroup: (groupId: string, songIds: string[]) =>
     request<{ addedSongIds: string[]; skippedSongIds: string[] }>(`/api/songs/groups/${groupId}/songs`, {
       method: "POST",
@@ -443,6 +455,50 @@ export interface ShareToken {
   createdAt?: string;
 }
 
+export interface DirectSongShare {
+  id: string;
+  userId: string;
+  email: string;
+  displayName?: string | null;
+  createdAt?: string;
+}
+
+export interface ShareTeam {
+  id: string;
+  name: string;
+  members: Array<{ userId: string; email: string; displayName?: string | null }>;
+  memberUserIds: string[];
+  memberNames: string[];
+  memberCount: number;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface SongTeamShare {
+  id: string;
+  teamId: string;
+  teamName: string;
+  createdAt?: string;
+}
+
+export interface OrganizationShareTarget {
+  id: string;
+  name: string;
+}
+
+export interface OrganizationShareAssignment {
+  songId: string;
+  organizationId: string;
+}
+
+export interface BatchOrganizationShareResult {
+  sharedSongs: number;
+  createdShares: number;
+  removedShares?: number;
+  skippedShares: number;
+  targetOrganizations?: number;
+}
+
 export const shareApi = {
   /** Create a share link for a song */
   create: (songId: string, data?: { label?: string; expiresInDays?: number }) =>
@@ -459,6 +515,65 @@ export const shareApi = {
   /** Update a share token (label) */
   update: (songId: string, tokenId: string, data: { label?: string | null }) =>
     request<{ shareToken: ShareToken }>(`/api/songs/${songId}/shares/${tokenId}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    }),
+  /** List direct authenticated user shares for a song */
+  listDirect: (songId: string) =>
+    request<{ directShares: DirectSongShare[] }>(`/api/songs/${songId}/direct-shares`),
+  /** Share a song directly with an existing user by email */
+  createDirect: (songId: string, data: { email: string }) =>
+    request<{ directShare: DirectSongShare }>(`/api/songs/${songId}/direct-shares`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  /** Remove a direct authenticated user share */
+  removeDirect: (songId: string, shareId: string) =>
+    request<{ message: string }>(`/api/songs/${songId}/direct-shares/${shareId}`, { method: "DELETE" }),
+  /** List reusable share teams for the active organization */
+  listTeams: () => request<{ teams: ShareTeam[] }>("/api/share-teams"),
+  /** Create a reusable share team */
+  createTeam: (data: { name: string; userIds: string[] }) =>
+    request<{ team: ShareTeam }>("/api/share-teams", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  /** Delete a reusable share team */
+  deleteTeam: (teamId: string) =>
+    request<{ message: string }>(`/api/share-teams/${teamId}`, { method: "DELETE" }),
+  /** List team shares for a song */
+  listTeamShares: (songId: string) =>
+    request<{ teamShares: SongTeamShare[] }>(`/api/songs/${songId}/team-shares`),
+  /** Share a song with a reusable team */
+  createTeamShare: (songId: string, data: { teamId: string }) =>
+    request<{ teamShare: SongTeamShare }>(`/api/songs/${songId}/team-shares`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  /** Remove a team share from a song */
+  removeTeamShare: (songId: string, shareId: string) =>
+    request<{ message: string }>(`/api/songs/${songId}/team-shares/${shareId}`, { method: "DELETE" }),
+  /** List other organizations that can receive shared songs */
+  listOrganizationTargets: () =>
+    request<{ organizations: OrganizationShareTarget[] }>("/api/share-organizations"),
+  /** List current organization share assignments for selected songs */
+  listBatchOrganizationShares: (songIds: string[]) => {
+    const query = new URLSearchParams();
+    for (const songId of songIds) {
+      query.append("songId", songId);
+    }
+
+    return request<{ shares: OrganizationShareAssignment[] }>(`/api/songs/batch/organization-shares?${query.toString()}`);
+  },
+  /** Batch share songs with one or more organizations */
+  batchShareToOrganizations: (data: { songIds: string[]; organizationIds: string[] }) =>
+    request<BatchOrganizationShareResult>("/api/songs/batch/organization-shares", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  /** Edit batch organization sharing by adding and removing target orgs */
+  updateBatchOrganizationShares: (data: { songIds: string[]; addOrganizationIds?: string[]; removeOrganizationIds?: string[] }) =>
+    request<BatchOrganizationShareResult>("/api/songs/batch/organization-shares", {
       method: "PATCH",
       body: JSON.stringify(data),
     }),

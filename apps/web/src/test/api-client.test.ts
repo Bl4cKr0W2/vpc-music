@@ -106,12 +106,13 @@ describe("songsApi", () => {
   it("list — builds correct URL with query params", async () => {
     mockFetch.mockResolvedValue(jsonResponse({ songs: [], total: 0 }));
 
-    await songsApi.list({ q: "grace", groupId: "group-1", category: "Church", key: "G", limit: 10 });
+    await songsApi.list({ q: "grace", groupId: "group-1", scope: "shared", category: "Church", key: "G", limit: 10 });
 
     const [url] = mockFetch.mock.calls[0];
     expect(url).toContain("/api/songs?");
     expect(url).toContain("q=grace");
     expect(url).toContain("groupId=group-1");
+    expect(url).toContain("scope=shared");
     expect(url).toContain("category=Church");
     expect(url).toContain("key=G");
     expect(url).toContain("limit=10");
@@ -137,6 +138,17 @@ describe("songsApi", () => {
     expect(url).toContain("/api/songs/groups");
     expect(options.method).toBe("POST");
     expect(JSON.parse(options.body)).toEqual({ name: "Wedding Songs" });
+  });
+
+  it("updateGroupManagers — sends PUT with delegated manager ids", async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ groupId: "group-1", managerUserIds: ["user-2"], managerNames: ["Band Member"] }));
+
+    await songsApi.updateGroupManagers("group-1", ["user-2"]);
+
+    const [url, options] = mockFetch.mock.calls[0];
+    expect(url).toContain("/api/songs/groups/group-1/managers");
+    expect(options.method).toBe("PUT");
+    expect(JSON.parse(options.body)).toEqual({ userIds: ["user-2"] });
   });
 
   it("addSongsToGroup — sends POST with selected song ids", async () => {
@@ -698,6 +710,144 @@ describe("shareApi", () => {
     const [url, options] = mockFetch.mock.calls[0];
     expect(url).toContain("/api/songs/s1/shares/t1");
     expect(options.method).toBe("PATCH");
+  });
+
+  it("listDirect — fetches direct authenticated shares for a song", async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ directShares: [] }));
+
+    await shareApi.listDirect("s1");
+
+    const [url] = mockFetch.mock.calls[0];
+    expect(url).toContain("/api/songs/s1/direct-shares");
+  });
+
+  it("createDirect — sends POST with recipient email", async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ directShare: { id: "ds-1" } }));
+
+    await shareApi.createDirect("s1", { email: "shared@test.com" });
+
+    const [url, options] = mockFetch.mock.calls[0];
+    expect(url).toContain("/api/songs/s1/direct-shares");
+    expect(options.method).toBe("POST");
+    expect(JSON.parse(options.body)).toEqual({ email: "shared@test.com" });
+  });
+
+  it("removeDirect — sends DELETE for a direct share", async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ message: "ok" }));
+
+    await shareApi.removeDirect("s1", "ds-1");
+
+    const [url, options] = mockFetch.mock.calls[0];
+    expect(url).toContain("/api/songs/s1/direct-shares/ds-1");
+    expect(options.method).toBe("DELETE");
+  });
+
+  it("listTeams — fetches reusable share teams", async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ teams: [] }));
+
+    await shareApi.listTeams();
+
+    const [url] = mockFetch.mock.calls[0];
+    expect(url).toContain("/api/share-teams");
+  });
+
+  it("createTeam — sends POST with team name and members", async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ team: { id: "team-1" } }));
+
+    await shareApi.createTeam({ name: "Band", userIds: ["user-2"] });
+
+    const [url, options] = mockFetch.mock.calls[0];
+    expect(url).toContain("/api/share-teams");
+    expect(options.method).toBe("POST");
+    expect(JSON.parse(options.body)).toEqual({ name: "Band", userIds: ["user-2"] });
+  });
+
+  it("deleteTeam — sends DELETE for a share team", async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ message: "ok" }));
+
+    await shareApi.deleteTeam("team-1");
+
+    const [url, options] = mockFetch.mock.calls[0];
+    expect(url).toContain("/api/share-teams/team-1");
+    expect(options.method).toBe("DELETE");
+  });
+
+  it("listTeamShares — fetches team shares for a song", async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ teamShares: [] }));
+
+    await shareApi.listTeamShares("s1");
+
+    const [url] = mockFetch.mock.calls[0];
+    expect(url).toContain("/api/songs/s1/team-shares");
+  });
+
+  it("createTeamShare — sends POST with a team id", async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ teamShare: { id: "ts-1" } }));
+
+    await shareApi.createTeamShare("s1", { teamId: "team-1" });
+
+    const [url, options] = mockFetch.mock.calls[0];
+    expect(url).toContain("/api/songs/s1/team-shares");
+    expect(options.method).toBe("POST");
+    expect(JSON.parse(options.body)).toEqual({ teamId: "team-1" });
+  });
+
+  it("removeTeamShare — sends DELETE for a team share", async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ message: "ok" }));
+
+    await shareApi.removeTeamShare("s1", "ts-1");
+
+    const [url, options] = mockFetch.mock.calls[0];
+    expect(url).toContain("/api/songs/s1/team-shares/ts-1");
+    expect(options.method).toBe("DELETE");
+  });
+
+  it("listOrganizationTargets — fetches shareable organizations", async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ organizations: [] }));
+
+    await shareApi.listOrganizationTargets();
+
+    const [url] = mockFetch.mock.calls[0];
+    expect(url).toContain("/api/share-organizations");
+  });
+
+  it("listBatchOrganizationShares — sends song ids as query params", async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ shares: [] }));
+
+    await shareApi.listBatchOrganizationShares(["s1", "s2"]);
+
+    const [url] = mockFetch.mock.calls[0];
+    expect(url).toContain("/api/songs/batch/organization-shares?songId=s1&songId=s2");
+  });
+
+  it("batchShareToOrganizations — sends POST with songIds and organizationIds", async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ sharedSongs: 1, targetOrganizations: 2, createdShares: 2, skippedShares: 0 }));
+
+    await shareApi.batchShareToOrganizations({ songIds: ["s1"], organizationIds: ["org-2", "org-3"] });
+
+    const [url, options] = mockFetch.mock.calls[0];
+    expect(url).toContain("/api/songs/batch/organization-shares");
+    expect(options.method).toBe("POST");
+    expect(JSON.parse(options.body)).toEqual({ songIds: ["s1"], organizationIds: ["org-2", "org-3"] });
+  });
+
+  it("updateBatchOrganizationShares — sends PATCH with add/remove ids", async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ sharedSongs: 2, createdShares: 1, removedShares: 1, skippedShares: 0 }));
+
+    await shareApi.updateBatchOrganizationShares({
+      songIds: ["s1", "s2"],
+      addOrganizationIds: ["org-3"],
+      removeOrganizationIds: ["org-2"],
+    });
+
+    const [url, options] = mockFetch.mock.calls[0];
+    expect(url).toContain("/api/songs/batch/organization-shares");
+    expect(options.method).toBe("PATCH");
+    expect(JSON.parse(options.body)).toEqual({
+      songIds: ["s1", "s2"],
+      addOrganizationIds: ["org-3"],
+      removeOrganizationIds: ["org-2"],
+    });
   });
 
   it("getShared — fetches public song by token", async () => {

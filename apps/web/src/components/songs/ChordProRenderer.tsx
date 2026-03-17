@@ -1,6 +1,11 @@
 import { parseChordPro, transposeChordPro, chordToNashville } from "@vpc-music/shared";
 import { useState, useRef, useEffect, useCallback, forwardRef, useImperativeHandle } from "react";
 
+function normalizeTranspose(steps: number) {
+  if (steps === 0) return 0;
+  return steps > 0 ? steps % 12 : -((-steps) % 12);
+}
+
 interface ChordProRendererProps {
   content: string;
   songKey?: string | null;
@@ -31,7 +36,7 @@ export const ChordProRenderer = forwardRef<ChordProRendererHandle, ChordProRende
   onTranspose,
 }, ref) {
   const [manualTranspose, setManualTranspose] = useState(0);
-  const transpose = baseTranspose + manualTranspose;
+  const transpose = normalizeTranspose(baseTranspose + manualTranspose);
 
   useEffect(() => {
     setManualTranspose(0);
@@ -41,8 +46,8 @@ export const ChordProRenderer = forwardRef<ChordProRendererHandle, ChordProRende
   const transposedContent = transpose !== 0 ? transposeChordPro(content, transpose) : content;
   const doc = parseChordPro(transposedContent);
 
-  const handleUp = () => setManualTranspose((t) => t + 1);
-  const handleDown = () => setManualTranspose((t) => t - 1);
+  const handleUp = () => setManualTranspose((t) => normalizeTranspose(t + 1));
+  const handleDown = () => setManualTranspose((t) => normalizeTranspose(t - 1));
   const handleReset = () => setManualTranspose(0);
 
   useImperativeHandle(ref, () => ({
@@ -52,7 +57,7 @@ export const ChordProRenderer = forwardRef<ChordProRendererHandle, ChordProRende
   }));
 
   return (
-    <div className="space-y-2">
+    <div className="song-display-font space-y-2" data-testid="chordpro-renderer">
       {/* Transpose controls */}
       {showChords && (
         <div className="flex items-center gap-3 text-sm print-hidden">
@@ -105,7 +110,7 @@ export const ChordProRenderer = forwardRef<ChordProRendererHandle, ChordProRende
         {doc.sections.map((section: any, si: number) => (
           <div key={si} className="space-y-1">
             {section.name && (
-              <div className="text-sm font-semibold text-[hsl(var(--secondary))] uppercase tracking-wide mt-2">
+              <div className="song-secondary-chord mt-2 text-sm font-semibold uppercase tracking-wide">
                 {section.name}
               </div>
             )}
@@ -167,7 +172,7 @@ function ChordLine({
     }
     const displayChord = nashville && songKey ? chordToNashville(chord, songKey) : chord;
     chordSpans.push(
-      <span key={`ch-${i}`} className="font-bold text-[hsl(var(--secondary))]">
+      <span key={`ch-${i}`} className="song-primary-chord font-bold">
         {displayChord}
       </span>
     );
@@ -176,7 +181,7 @@ function ChordLine({
 
   return (
     <div className="font-mono leading-relaxed">
-      <div className="whitespace-pre text-[hsl(var(--secondary))]">{chordSpans}</div>
+      <div className="song-primary-chord whitespace-pre">{chordSpans}</div>
       <div className="whitespace-pre-wrap text-[hsl(var(--foreground))]">{lyrics}</div>
     </div>
   );

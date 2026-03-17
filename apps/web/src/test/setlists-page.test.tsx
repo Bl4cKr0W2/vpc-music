@@ -4,6 +4,8 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { SetlistsPage } from "@/pages/setlists/SetlistsPage";
 
+const SHOW_COMPLETED_STORAGE_KEY = "vpc-setlists-show-completed";
+
 // ---------- Mocks ----------
 const mockList = vi.fn();
 const mockCreate = vi.fn();
@@ -49,7 +51,7 @@ function renderPage() {
 describe("SetlistsPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.spyOn(window, "confirm").mockReturnValue(true);
+    window.localStorage.clear();
   });
 
   // ===================== POSITIVE =====================
@@ -81,6 +83,62 @@ describe("SetlistsPage", () => {
         expect(screen.getByText(/5 songs/)).toBeInTheDocument();
         expect(screen.getByText(/3 songs/)).toBeInTheDocument();
       });
+    });
+
+    it("keeps completed setlists hidden in the archive by default", async () => {
+      mockList.mockResolvedValue({
+        setlists: [
+          { id: "s1", name: "Active Set", songCount: 2, category: null, status: "draft" },
+          { id: "s2", name: "Completed Set", songCount: 4, category: null, status: "complete" },
+        ],
+      });
+
+      renderPage();
+
+      await waitFor(() => {
+        expect(screen.getByText("Active Set")).toBeInTheDocument();
+      });
+
+      expect(screen.queryByText("Completed Set")).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /show archive \(1\)/i })).toBeInTheDocument();
+    });
+
+    it("shows completed setlists in an archive section when toggled", async () => {
+      mockList.mockResolvedValue({
+        setlists: [
+          { id: "s1", name: "Active Set", songCount: 2, category: null, status: "draft" },
+          { id: "s2", name: "Completed Set", songCount: 4, category: null, status: "complete" },
+        ],
+      });
+
+      renderPage();
+      const user = userEvent.setup();
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /show archive \(1\)/i })).toBeInTheDocument();
+      });
+
+      await user.click(screen.getByRole("button", { name: /show archive \(1\)/i }));
+
+      expect(screen.getByRole("heading", { name: /completed archive/i })).toBeInTheDocument();
+      expect(screen.getByText("Completed Set")).toBeInTheDocument();
+      expect(window.localStorage.getItem(SHOW_COMPLETED_STORAGE_KEY)).toBe("true");
+    });
+
+    it("restores the archive toggle from local storage", async () => {
+      window.localStorage.setItem(SHOW_COMPLETED_STORAGE_KEY, "true");
+      mockList.mockResolvedValue({
+        setlists: [
+          { id: "s1", name: "Completed Set", songCount: 4, category: null, status: "complete" },
+        ],
+      });
+
+      renderPage();
+
+      await waitFor(() => {
+        expect(screen.getByText("Completed Set")).toBeInTheDocument();
+      });
+      expect(screen.getByRole("button", { name: /hide archive \(1\)/i })).toBeInTheDocument();
     });
 
     it("shows category on setlist card", async () => {
@@ -133,6 +191,18 @@ describe("SetlistsPage", () => {
       });
     });
 
+    it("shows an archive-only empty state when only completed setlists exist", async () => {
+      mockList.mockResolvedValue({
+        setlists: [{ id: "s1", name: "Archived", songCount: 1, category: null, status: "complete" }],
+      });
+      renderPage();
+
+      await waitFor(() => {
+        expect(screen.getByText(/no active setlists right now/i)).toBeInTheDocument();
+      });
+      expect(screen.getByRole("button", { name: /show completed archive \(1\)/i })).toBeInTheDocument();
+    });
+
     it("shows loading state", () => {
       mockList.mockReturnValue(new Promise(() => {}));
       renderPage();
@@ -158,9 +228,8 @@ describe("SetlistsPage", () => {
         expect(screen.getByText("ToDelete")).toBeInTheDocument();
       });
 
-      // Find and click the delete button (it's hidden until hover, but still in DOM)
-      const deleteBtn = screen.getByTitle("Delete");
-      fireEvent.click(deleteBtn);
+      fireEvent.click(screen.getByTitle("Delete"));
+      fireEvent.click(screen.getByRole("button", { name: /delete setlist/i }));
 
       await waitFor(() => {
         expect(mockDeleteSetlist).toHaveBeenCalledWith("s1");
@@ -181,6 +250,7 @@ describe("SetlistsPage", () => {
       });
 
       fireEvent.click(screen.getByTitle("Delete"));
+      fireEvent.click(screen.getByRole("button", { name: /delete setlist/i }));
 
       await waitFor(() => {
         expect(toast.error).toHaveBeenCalledWith("Forbidden");

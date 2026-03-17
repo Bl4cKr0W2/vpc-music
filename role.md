@@ -49,6 +49,7 @@ In practice, the four roles we talk about day-to-day are:
 - [x] Add songs or song variations to setlists.
 - [x] Create and manage setlists.
 - [x] Use sharing/export features available in the song viewer.
+- [x] Batch share selected songs with other organizations and edit those org shares from the library.
 - [x] Use logging/history/notes features available to signed-in users.
 - [x] See the system as a global `owner` in settings/profile UI.
 
@@ -89,6 +90,7 @@ In practice, the four roles we talk about day-to-day are:
 - [x] Add songs or selected variations to setlists.
 - [x] Create and manage setlists.
 - [x] Use sharing/export options in the song viewer.
+- [x] Batch share selected songs with other organizations and edit those org shares from the library.
 - [x] Use notes, usage logging, and song history features exposed to signed-in users.
 
 ## What an Admin cannot do
@@ -130,6 +132,7 @@ In practice, the four roles we talk about day-to-day are:
 - [ ] Cannot invite users through the admin workflow.
 - [ ] Cannot change other members’ org roles.
 - [ ] Cannot remove members from the organization.
+- [ ] Cannot batch share songs with other organizations or edit org-share assignments.
 - [ ] Does not have global `owner` bypass privileges.
 
 ## Notes
@@ -159,6 +162,7 @@ In practice, the four roles we talk about day-to-day are:
 - [ ] Cannot change org roles.
 - [ ] Cannot remove members.
 - [ ] Cannot set or clear the **default variation** for a song.
+- [ ] Cannot batch share songs with other organizations or edit org-share assignments.
 - [ ] Cannot be treated as an editor-level role.
 - [ ] Should be considered **read-only** for content governance.
 

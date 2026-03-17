@@ -164,6 +164,24 @@ describe("ChordProRenderer", () => {
       expect(mockTransposeChordPro).toHaveBeenCalledWith("test", 1);
       expect(mockParseChordPro).toHaveBeenCalledWith("transposed-content");
     });
+
+    it("wraps transpose back to 0 after 12 upward clicks", () => {
+      render(<ChordProRenderer content="test" />);
+      for (let i = 0; i < 12; i++) {
+        fireEvent.click(screen.getByText("+"));
+      }
+      expect(screen.getByText("0")).toBeInTheDocument();
+      expect(mockTransposeChordPro).toHaveBeenLastCalledWith("test", 11);
+    });
+
+    it("wraps transpose back to 0 after 12 downward clicks", () => {
+      render(<ChordProRenderer content="test" />);
+      for (let i = 0; i < 12; i++) {
+        fireEvent.click(screen.getByText("−"));
+      }
+      expect(screen.getByText("0")).toBeInTheDocument();
+      expect(mockTransposeChordPro).toHaveBeenLastCalledWith("test", -11);
+    });
   });
 
   // ===================== IMPERATIVE HANDLE =====================
@@ -225,6 +243,11 @@ describe("ChordProRenderer", () => {
       expect(styled).toBeTruthy();
       expect(styled!.getAttribute("style")).toContain("16px");
     });
+
+    it("uses the song display font class on the renderer root", () => {
+      render(<ChordProRenderer content="test" />);
+      expect(screen.getByTestId("chordpro-renderer").className).toContain("song-display-font");
+    });
   });
 
   // ===================== SONG KEY =====================
@@ -273,6 +296,12 @@ describe("ChordProRenderer", () => {
       // ChordLine returns null for empty chords + blank lyrics
       const leadingRelaxed = container.querySelectorAll(".leading-relaxed");
       expect(leadingRelaxed.length).toBe(0);
+    });
+
+    it("renders chord and section semantic color classes", () => {
+      const { container } = render(<ChordProRenderer content="test" />);
+      expect(container.querySelector(".song-primary-chord")).toBeTruthy();
+      expect(container.querySelector(".song-secondary-chord")).toBeTruthy();
     });
   });
 });

@@ -1,20 +1,42 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { ShareManageDialog } from "@/components/songs/ShareManageDialog";
-import type { ShareToken } from "@/lib/api-client";
+import type { OrgUser, ShareTeam, ShareToken, SongTeamShare } from "@/lib/api-client";
 
 // ---------- API mocks ----------
 const mockList = vi.fn();
 const mockCreate = vi.fn();
 const mockRevoke = vi.fn();
 const mockUpdate = vi.fn();
+const mockListDirect = vi.fn();
+const mockCreateDirect = vi.fn();
+const mockRemoveDirect = vi.fn();
+const mockListTeams = vi.fn();
+const mockCreateTeam = vi.fn();
+const mockDeleteTeam = vi.fn();
+const mockListTeamShares = vi.fn();
+const mockCreateTeamShare = vi.fn();
+const mockRemoveTeamShare = vi.fn();
+const mockListUsers = vi.fn();
 
 vi.mock("@/lib/api-client", () => ({
+  adminApi: {
+    listUsers: (...args: any[]) => mockListUsers(...args),
+  },
   shareApi: {
     list: (...args: any[]) => mockList(...args),
     create: (...args: any[]) => mockCreate(...args),
     revoke: (...args: any[]) => mockRevoke(...args),
     update: (...args: any[]) => mockUpdate(...args),
+    listDirect: (...args: any[]) => mockListDirect(...args),
+    createDirect: (...args: any[]) => mockCreateDirect(...args),
+    removeDirect: (...args: any[]) => mockRemoveDirect(...args),
+    listTeams: (...args: any[]) => mockListTeams(...args),
+    createTeam: (...args: any[]) => mockCreateTeam(...args),
+    deleteTeam: (...args: any[]) => mockDeleteTeam(...args),
+    listTeamShares: (...args: any[]) => mockListTeamShares(...args),
+    createTeamShare: (...args: any[]) => mockCreateTeamShare(...args),
+    removeTeamShare: (...args: any[]) => mockRemoveTeamShare(...args),
   },
 }));
 
@@ -65,6 +87,47 @@ const unlabeledToken: ShareToken = {
   createdAt: "2025-06-01T00:00:00Z",
 };
 
+const orgMembers: OrgUser[] = [
+  {
+    id: "user-1",
+    email: "owner@test.com",
+    displayName: "Owner User",
+    globalRole: "owner",
+    orgRole: "admin",
+    hasPassword: true,
+    createdAt: "2026-03-16T00:00:00Z",
+  },
+  {
+    id: "user-2",
+    email: "shared@test.com",
+    displayName: "Shared User",
+    globalRole: "member",
+    orgRole: "musician",
+    hasPassword: true,
+    createdAt: "2026-03-16T00:00:00Z",
+  },
+];
+
+const shareTeam: ShareTeam = {
+  id: "team-1",
+  name: "Vocals",
+  members: [
+    { userId: "user-2", email: "shared@test.com", displayName: "Shared User" },
+  ],
+  memberUserIds: ["user-2"],
+  memberNames: ["Shared User"],
+  memberCount: 1,
+  createdAt: "2026-03-16T00:00:00Z",
+  updatedAt: "2026-03-16T00:00:00Z",
+};
+
+const teamShare: SongTeamShare = {
+  id: "ts-1",
+  teamId: "team-1",
+  teamName: "Vocals",
+  createdAt: "2026-03-16T00:00:00Z",
+};
+
 function renderDialog(open = true) {
   const onClose = vi.fn();
   const result = render(
@@ -77,9 +140,21 @@ describe("ShareManageDialog", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockList.mockResolvedValue({ shares: [] });
+    mockListDirect.mockResolvedValue({ directShares: [] });
+    mockListTeams.mockResolvedValue({ teams: [] });
+    mockListTeamShares.mockResolvedValue({ teamShares: [] });
+    mockListUsers.mockResolvedValue({ users: orgMembers });
     mockCreate.mockResolvedValue({ shareToken: activeToken, shareUrl: "/shared/abc123" });
     mockUpdate.mockResolvedValue({ shareToken: { ...activeToken, label: "Updated" } });
     mockRevoke.mockResolvedValue({ message: "ok" });
+    mockCreateDirect.mockResolvedValue({
+      directShare: { id: "ds-1", userId: "user-2", email: "shared@test.com", displayName: "Shared User", createdAt: "2026-03-16T00:00:00Z" },
+    });
+    mockRemoveDirect.mockResolvedValue({ message: "ok" });
+    mockCreateTeam.mockResolvedValue({ team: shareTeam });
+    mockDeleteTeam.mockResolvedValue({ message: "ok" });
+    mockCreateTeamShare.mockResolvedValue({ teamShare });
+    mockRemoveTeamShare.mockResolvedValue({ message: "ok" });
   });
 
   // ===================== RENDERING =====================
@@ -98,7 +173,9 @@ describe("ShareManageDialog", () => {
     it("renders create-new-link section", async () => {
       renderDialog();
       expect(screen.getByText("Create New Link")).toBeInTheDocument();
+      expect(screen.getByText("Share with Specific Users")).toBeInTheDocument();
       expect(screen.getByPlaceholderText("Label (optional)")).toBeInTheDocument();
+      expect(screen.getByPlaceholderText("User email")).toBeInTheDocument();
       expect(screen.getByText("Create")).toBeInTheDocument();
     });
 
@@ -203,6 +280,10 @@ describe("ShareManageDialog", () => {
       renderDialog();
       await waitFor(() => {
         expect(mockList).toHaveBeenCalledWith(SONG_ID);
+        expect(mockListDirect).toHaveBeenCalledWith(SONG_ID);
+        expect(mockListTeams).toHaveBeenCalledWith();
+        expect(mockListTeamShares).toHaveBeenCalledWith(SONG_ID);
+        expect(mockListUsers).toHaveBeenCalledWith();
       });
     });
 
@@ -305,9 +386,8 @@ describe("ShareManageDialog", () => {
       });
     });
 
-    it("revokes a share link after confirm", async () => {
+    it("revokes a share link after modal confirmation", async () => {
       mockList.mockResolvedValue({ shares: [activeToken] });
-      vi.spyOn(window, "confirm").mockReturnValue(true);
 
       renderDialog();
       await waitFor(() => {
@@ -315,15 +395,15 @@ describe("ShareManageDialog", () => {
       });
 
       fireEvent.click(screen.getByText("Revoke"));
+      fireEvent.click(screen.getByRole("button", { name: /revoke link/i }));
 
       await waitFor(() => {
         expect(mockRevoke).toHaveBeenCalledWith(SONG_ID, "t1");
       });
     });
 
-    it("does not revoke when confirm is cancelled", async () => {
+    it("does not revoke when the modal is cancelled", async () => {
       mockList.mockResolvedValue({ shares: [activeToken] });
-      vi.spyOn(window, "confirm").mockReturnValue(false);
 
       renderDialog();
       await waitFor(() => {
@@ -331,6 +411,7 @@ describe("ShareManageDialog", () => {
       });
 
       fireEvent.click(screen.getByText("Revoke"));
+      fireEvent.click(screen.getByRole("button", { name: /cancel/i }));
 
       expect(mockRevoke).not.toHaveBeenCalled();
     });
@@ -454,7 +535,111 @@ describe("ShareManageDialog", () => {
       renderDialog();
 
       await waitFor(() => {
-        expect(toast.error).toHaveBeenCalledWith("Failed to load share links");
+        expect(toast.error).toHaveBeenCalledWith("Failed to load sharing settings");
+      });
+    });
+
+    it("creates a direct user share from the email input", async () => {
+      renderDialog();
+
+      await waitFor(() => {
+        expect(mockListDirect).toHaveBeenCalled();
+      });
+
+      fireEvent.change(screen.getByPlaceholderText("User email"), {
+        target: { value: "shared@test.com" },
+      });
+      fireEvent.click(screen.getAllByText("Share")[0]);
+
+      await waitFor(() => {
+        expect(mockCreateDirect).toHaveBeenCalledWith(SONG_ID, { email: "shared@test.com" });
+      });
+
+      expect(screen.getByText("Shared User")).toBeInTheDocument();
+    });
+
+    it("removes a direct user share after modal confirmation", async () => {
+      mockListDirect.mockResolvedValue({
+        directShares: [{ id: "ds-1", userId: "user-2", email: "shared@test.com", displayName: "Shared User", createdAt: "2026-03-16T00:00:00Z" }],
+      });
+
+      renderDialog();
+
+      await waitFor(() => {
+        expect(screen.getByText("Shared User")).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByText("Remove"));
+      fireEvent.click(screen.getByRole("button", { name: /remove share/i }));
+
+      await waitFor(() => {
+        expect(mockRemoveDirect).toHaveBeenCalledWith(SONG_ID, "ds-1");
+      });
+    });
+
+    it("creates a reusable share team", async () => {
+      renderDialog();
+
+      await waitFor(() => {
+        expect(mockListUsers).toHaveBeenCalled();
+      });
+
+      fireEvent.change(screen.getByPlaceholderText("Band, vocals, youth team..."), {
+        target: { value: "Vocals" },
+      });
+
+      const memberSelect = screen.getAllByRole("listbox")[0] as HTMLSelectElement;
+      Array.from(memberSelect.options).forEach((option) => {
+        option.selected = option.value === "user-2";
+      });
+      fireEvent.change(memberSelect);
+
+      fireEvent.click(screen.getByText("Create Team"));
+
+      await waitFor(() => {
+        expect(mockCreateTeam).toHaveBeenCalledWith({
+          name: "Vocals",
+          userIds: ["user-2"],
+        });
+      });
+
+      expect(screen.getAllByText("Vocals").length).toBeGreaterThan(0);
+    });
+
+    it("shares a song with a reusable team", async () => {
+      mockListTeams.mockResolvedValue({ teams: [shareTeam] });
+      renderDialog();
+
+      await waitFor(() => {
+        expect(screen.getByText("Share with Teams")).toBeInTheDocument();
+      });
+
+      fireEvent.change(screen.getByDisplayValue("Select a team"), {
+        target: { value: "team-1" },
+      });
+      fireEvent.click(screen.getAllByText("Share")[1]);
+
+      await waitFor(() => {
+        expect(mockCreateTeamShare).toHaveBeenCalledWith(SONG_ID, { teamId: "team-1" });
+      });
+
+      expect(screen.getAllByText("Vocals").length).toBeGreaterThan(0);
+    });
+
+    it("removes a team share after modal confirmation", async () => {
+      mockListTeamShares.mockResolvedValue({ teamShares: [teamShare] });
+
+      renderDialog();
+
+      await waitFor(() => {
+        expect(screen.getByText("Vocals")).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getAllByText("Remove")[0]);
+      fireEvent.click(screen.getByRole("button", { name: /remove team share/i }));
+
+      await waitFor(() => {
+        expect(mockRemoveTeamShare).toHaveBeenCalledWith(SONG_ID, "ts-1");
       });
     });
   });

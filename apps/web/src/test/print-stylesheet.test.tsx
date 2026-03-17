@@ -20,6 +20,9 @@ vi.mock("@/lib/api-client", () => ({
     list: vi.fn().mockResolvedValue({ shares: [] }),
     revoke: vi.fn(),
     update: vi.fn().mockResolvedValue({ shareToken: {} }),
+    listDirect: vi.fn().mockResolvedValue({ directShares: [] }),
+    createDirect: vi.fn(),
+    removeDirect: vi.fn(),
     getShared: vi.fn().mockResolvedValue({
       song: {
         id: "s1",

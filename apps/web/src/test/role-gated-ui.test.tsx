@@ -20,6 +20,10 @@ const mockSongsGet = vi.fn();
 const mockSongsGetGroups = vi.fn();
 const mockSongsGetCategories = vi.fn();
 const mockSongsGetTags = vi.fn();
+const mockAdminListUsers = vi.fn();
+const mockShareListOrganizationTargets = vi.fn();
+const mockShareListBatchOrganizationShares = vi.fn();
+const mockShareUpdateBatchToOrganizations = vi.fn();
 const mockSetlistsList = vi.fn();
 const mockSetlistsGet = vi.fn();
 const mockEventsList = vi.fn();
@@ -33,6 +37,9 @@ vi.mock("@/lib/api-client", () => ({
     getTags: (...args: any[]) => mockSongsGetTags(...args),
     delete: vi.fn(),
     exportChordPro: vi.fn(),
+  },
+  adminApi: {
+    listUsers: (...args: any[]) => mockAdminListUsers(...args),
   },
   setlistsApi: {
     list: (...args: any[]) => mockSetlistsList(...args),
@@ -53,6 +60,12 @@ vi.mock("@/lib/api-client", () => ({
     list: vi.fn().mockResolvedValue({ shares: [] }),
     revoke: vi.fn(),
     update: vi.fn(),
+    listDirect: vi.fn().mockResolvedValue({ directShares: [] }),
+    createDirect: vi.fn(),
+    removeDirect: vi.fn(),
+    listOrganizationTargets: (...args: any[]) => mockShareListOrganizationTargets(...args),
+    listBatchOrganizationShares: (...args: any[]) => mockShareListBatchOrganizationShares(...args),
+    updateBatchOrganizationShares: (...args: any[]) => mockShareUpdateBatchToOrganizations(...args),
     getShared: vi.fn(),
   },
   songUsageApi: {
@@ -204,9 +217,13 @@ describe("Role-gated UI", () => {
     vi.clearAllMocks();
     mockSongsList.mockResolvedValue({ songs: [mockSong], total: 1 });
     mockSongsGet.mockResolvedValue({ song: mockSong, variations: [] });
-    mockSongsGetGroups.mockResolvedValue({ groups: [{ id: "group-1", name: "Wedding Songs", songCount: 1 }] });
+    mockSongsGetGroups.mockResolvedValue({ groups: [{ id: "group-1", name: "Wedding Songs", songCount: 1, canManage: true, managerUserIds: [], managerNames: [] }] });
     mockSongsGetCategories.mockResolvedValue({ categories: ["Church", "Wedding"] });
     mockSongsGetTags.mockResolvedValue({ tags: ["hymn", "worship"] });
+    mockAdminListUsers.mockResolvedValue({ users: [] });
+    mockShareListOrganizationTargets.mockResolvedValue({ organizations: [{ id: "org-2", name: "Mercy Chapel" }] });
+    mockShareListBatchOrganizationShares.mockResolvedValue({ shares: [] });
+    mockShareUpdateBatchToOrganizations.mockResolvedValue({ sharedSongs: 1, createdShares: 1, removedShares: 0, skippedShares: 0 });
     mockSetlistsList.mockResolvedValue({ setlists: [{ id: "sl-1", name: "Sunday", songCount: 2, category: "worship" }] });
     mockSetlistsGet.mockResolvedValue({ setlist: mockSetlist, songs: mockSetlistSongs });
     mockEventsList.mockResolvedValue({ events: [] });
@@ -219,14 +236,24 @@ describe("Role-gated UI", () => {
       renderSongList();
       await waitFor(() => expect(screen.getByText("Amazing Grace")).toBeInTheDocument());
       expect(screen.getByRole("link", { name: /new song/i })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /share to organizations/i })).not.toBeInTheDocument();
     });
 
     it("observer does NOT see New Song button", async () => {
       mockAuthValue = observerAuth;
+      mockSongsGetGroups.mockResolvedValue({ groups: [{ id: "group-1", name: "Wedding Songs", songCount: 1, canManage: false, managerUserIds: [], managerNames: [] }] });
       renderSongList();
       await waitFor(() => expect(screen.getByText("Amazing Grace")).toBeInTheDocument());
       expect(screen.queryByRole("link", { name: /new song/i })).not.toBeInTheDocument();
       expect(screen.queryByRole("button", { name: /groups/i })).not.toBeInTheDocument();
+    });
+
+    it("observer sees Groups button when delegated to manage a group", async () => {
+      mockAuthValue = observerAuth;
+      mockSongsGetGroups.mockResolvedValue({ groups: [{ id: "group-1", name: "Wedding Songs", songCount: 1, canManage: true, managerUserIds: ["u2"], managerNames: ["Observer"] }] });
+      renderSongList();
+      await waitFor(() => expect(screen.getByText("Amazing Grace")).toBeInTheDocument());
+      expect(screen.getByRole("button", { name: /groups/i })).toBeInTheDocument();
     });
 
     it("owner sees New Song button", async () => {
@@ -235,6 +262,14 @@ describe("Role-gated UI", () => {
       await waitFor(() => expect(screen.getByText("Amazing Grace")).toBeInTheDocument());
       expect(screen.getByRole("link", { name: /new song/i })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: /groups/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /share to organizations/i })).toBeInTheDocument();
+    });
+
+    it("admin sees Share to Organizations button", async () => {
+      mockAuthValue = adminAuth;
+      renderSongList();
+      await waitFor(() => expect(screen.getByText("Amazing Grace")).toBeInTheDocument());
+      expect(screen.getByRole("button", { name: /share to organizations/i })).toBeInTheDocument();
     });
   });
 

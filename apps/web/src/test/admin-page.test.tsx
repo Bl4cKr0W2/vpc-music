@@ -300,9 +300,7 @@ describe("AdminPage", () => {
       });
     });
 
-    it("removes a member after confirm", async () => {
-      vi.spyOn(window, "confirm").mockReturnValue(true);
-
+    it("removes a member after confirmation", async () => {
       renderPage();
       await waitFor(() => {
         expect(screen.getByText("Band Member")).toBeInTheDocument();
@@ -311,15 +309,14 @@ describe("AdminPage", () => {
       // Find remove buttons (excluding the disabled one for self)
       const removeButtons = screen.getAllByTitle("Remove from organization");
       fireEvent.click(removeButtons[0]);
+      fireEvent.click(screen.getByRole("button", { name: /remove member/i }));
 
       await waitFor(() => {
         expect(mockRemoveMember).toHaveBeenCalledWith("u2");
       });
     });
 
-    it("does not remove member when confirm is cancelled", async () => {
-      vi.spyOn(window, "confirm").mockReturnValue(false);
-
+    it("does not remove member when the modal is cancelled", async () => {
       renderPage();
       await waitFor(() => {
         expect(screen.getByText("Band Member")).toBeInTheDocument();
@@ -327,6 +324,7 @@ describe("AdminPage", () => {
 
       const removeButtons = screen.getAllByTitle("Remove from organization");
       fireEvent.click(removeButtons[0]);
+      fireEvent.click(screen.getByRole("button", { name: /cancel/i }));
 
       expect(mockRemoveMember).not.toHaveBeenCalled();
     });

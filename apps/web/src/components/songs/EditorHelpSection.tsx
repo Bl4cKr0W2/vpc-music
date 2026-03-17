@@ -169,10 +169,12 @@ function SectionTemplatesContent({ onInsert }: { onInsert?: (text: string) => vo
 
 interface EditorHelpSectionProps {
   onInsertTemplate?: (text: string) => void;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
-export function EditorHelpSection({ onInsertTemplate }: EditorHelpSectionProps) {
-  const [isOpen, setIsOpen] = useState(() => {
+export function EditorHelpSection({ onInsertTemplate, open, onOpenChange }: EditorHelpSectionProps) {
+  const [internalIsOpen, setInternalIsOpen] = useState(() => {
     try {
       return localStorage.getItem(STORAGE_KEY) === "true";
     } catch {
@@ -187,6 +189,16 @@ export function EditorHelpSection({ onInsertTemplate }: EditorHelpSectionProps) 
       return "tips";
     }
   });
+
+  const isOpen = open ?? internalIsOpen;
+
+  const setIsOpen = (next: boolean | ((prev: boolean) => boolean)) => {
+    const resolved = typeof next === "function" ? next(isOpen) : next;
+    if (open === undefined) {
+      setInternalIsOpen(resolved);
+    }
+    onOpenChange?.(resolved);
+  };
 
   useEffect(() => {
     try {
@@ -233,6 +245,8 @@ export function EditorHelpSection({ onInsertTemplate }: EditorHelpSectionProps) 
     <div
       className="rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--card))]"
       data-testid="editor-help-section"
+      role="region"
+      aria-label="Editor help and reference"
     >
       {/* Toggle header */}
       <button
@@ -240,6 +254,9 @@ export function EditorHelpSection({ onInsertTemplate }: EditorHelpSectionProps) 
         onClick={() => setIsOpen((o) => !o)}
         className="flex w-full items-center justify-between px-3 py-2 text-sm font-medium text-[hsl(var(--foreground))] hover:bg-[hsl(var(--muted))] transition-colors rounded-md"
         data-testid="help-toggle"
+        aria-expanded={isOpen}
+        aria-controls="editor-help-panel"
+        aria-label="Toggle editor help and reference"
       >
         <span>Editor Help &amp; Reference</span>
         <ChevronDown
@@ -251,7 +268,7 @@ export function EditorHelpSection({ onInsertTemplate }: EditorHelpSectionProps) 
 
       {/* Collapsible body */}
       {isOpen && (
-        <div className="border-t border-[hsl(var(--border))] px-3 py-3">
+        <div className="border-t border-[hsl(var(--border))] px-3 py-3" id="editor-help-panel">
           {/* Tab bar */}
           <div className="mb-3 flex gap-1 border-b border-[hsl(var(--border))]" data-testid="help-tabs">
             {tabs.map((tab) => (

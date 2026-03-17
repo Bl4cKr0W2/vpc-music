@@ -133,6 +133,13 @@ describe("ChordProEditor — Phase 2 features", () => {
       expect(screen.getByText("Go to Section")).toBeInTheDocument();
     });
 
+    it("renders quick-access section chips", () => {
+      renderEditor();
+      expect(screen.getByTestId("section-chip-bar")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /jump to section verse 1/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /jump to section chorus/i })).toBeInTheDocument();
+    });
+
     it("opens section navigation dropdown", async () => {
       renderEditor();
       const user = userEvent.setup();
@@ -144,8 +151,8 @@ describe("ChordProEditor — Phase 2 features", () => {
       renderEditor();
       const user = userEvent.setup();
       await user.click(screen.getByTestId("section-nav-btn"));
-      expect(screen.getByText("Verse 1")).toBeInTheDocument();
-      expect(screen.getByText("Chorus")).toBeInTheDocument();
+      expect(screen.getAllByText("Verse 1").length).toBeGreaterThanOrEqual(1);
+      expect(screen.getAllByText("Chorus").length).toBeGreaterThanOrEqual(1);
     });
 
     it("shows line numbers for sections", async () => {
@@ -202,6 +209,13 @@ describe("ChordProEditor — Phase 2 features", () => {
       await user.click(screen.getByTestId("view-mode-preview"));
       expect(screen.queryByTestId("format-btn")).not.toBeInTheDocument();
     });
+
+    it("formats with Ctrl+Shift+F keyboard shortcut", () => {
+      const onChange = vi.fn();
+      renderEditor({ value: "{ title : Test }", onChange });
+      fireEvent.keyDown(screen.getByTestId("chordpro-editor"), { key: "F", ctrlKey: true, shiftKey: true });
+      expect(onChange).toHaveBeenCalled();
+    });
   });
 
   // ═══════ Command Palette Trigger ═══════
@@ -209,12 +223,59 @@ describe("ChordProEditor — Phase 2 features", () => {
   describe("command palette trigger", () => {
     it("renders hint about Ctrl+Space", () => {
       renderEditor();
-      expect(screen.getByText(/ctrl\+space/i)).toBeInTheDocument();
+      expect(screen.getAllByText(/ctrl\+space/i).length).toBeGreaterThanOrEqual(1);
     });
 
     it("renders hint about slash commands", () => {
       renderEditor();
-      expect(screen.getByText(/slash commands/i)).toBeInTheDocument();
+      expect(screen.getAllByText(/slash commands/i).length).toBeGreaterThanOrEqual(1);
+    });
+
+    it("opens help with F1", () => {
+      renderEditor();
+      expect(screen.queryByTestId("help-content")).not.toBeInTheDocument();
+      fireEvent.keyDown(screen.getByTestId("chordpro-editor"), { key: "F1" });
+      expect(screen.getByTestId("help-content")).toBeInTheDocument();
+    });
+
+    it("opens section navigation with Ctrl+P", () => {
+      renderEditor();
+      fireEvent.keyDown(screen.getByTestId("chordpro-editor"), { key: "p", ctrlKey: true });
+      expect(screen.getByTestId("section-nav-dropdown")).toBeInTheDocument();
+    });
+
+    it("jumps to verse/chorus/bridge shortcuts with Ctrl+1/2/3", () => {
+      renderEditor();
+      const editor = screen.getByTestId("chordpro-editor") as HTMLTextAreaElement;
+      fireEvent.keyDown(editor, { key: "2", ctrlKey: true });
+      expect(editor.selectionStart).toBeGreaterThan(0);
+      fireEvent.keyDown(editor, { key: "3", ctrlKey: true });
+      expect(editor.selectionStart).toBeGreaterThan(0);
+    });
+
+    it("renders sticky toolbar and accessible control labels", () => {
+      renderEditor();
+      expect(screen.getByTestId("editor-toolbar").className).toContain("sticky");
+      expect(screen.getByLabelText(/switch to editor-only mode/i)).toBeInTheDocument();
+      expect(screen.getByLabelText(/switch to split editor and preview mode/i)).toBeInTheDocument();
+      expect(screen.getByLabelText(/format chordpro document/i)).toBeInTheDocument();
+      expect(screen.getByLabelText(/open insert section menu/i)).toBeInTheDocument();
+    });
+
+    it("shows beginner mode examples and defaults help open", () => {
+      localStorage.setItem("vpc-editor-mode", "beginner");
+      renderEditor();
+      expect(screen.getByTestId("beginner-example-panel")).toBeInTheDocument();
+      expect(screen.getByText("Full Song Example")).toBeInTheDocument();
+      expect(screen.getByTestId("help-content")).toBeInTheDocument();
+      expect(screen.queryByTestId("format-btn")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("view-mode-split")).not.toBeInTheDocument();
+    });
+
+    it("shows advanced mode shortcut chips", () => {
+      renderEditor();
+      expect(screen.getByTestId("advanced-shortcuts")).toBeInTheDocument();
+      expect(screen.getByText(/ctrl\+space palette/i)).toBeInTheDocument();
     });
   });
 });

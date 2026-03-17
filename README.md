@@ -234,6 +234,10 @@ The built-in ChordPro editor provides a rich editing experience with real-time f
 
 **Help Section** — collapsible 4-tab reference panel (Quick Tips, Shortcuts, Common Directives, Section Templates) with localStorage persistence.
 
+**Accessibility & Tablet Upgrades** — sticky editor toolbar, quick section-jump chips, keyboard shortcuts for format/help/section navigation (`Ctrl+Shift+F`, `F1`, `Ctrl+P`, `Ctrl+1/2/3`), mobile/tablet bottom-sheet editor menus, and labeled dialog/tool controls for screen readers.
+
+**Beginner / Advanced Modes** — beginner mode keeps examples and help visible with a simplified toolbar, while advanced mode restores split preview, section power tools, formatting controls, and compact shortcut chips. The mode preference is persisted from Settings.
+
 ### 📁 Song Metadata
 
 | Field | Description |
@@ -252,9 +256,10 @@ The built-in ChordPro editor provides a rich editing experience with real-time f
 
 - **Themes & User Page Styles**
   - **Dark / Light theme toggle** (carried forward from current site) with persistent preference
-  - Background / Page / Header colors
-  - Chord / Note / Special element colors (primary chords, secondary chords, comments — each independently styled)
-  - Font family + font background
+  - Background / page color customization with live preview from Settings
+  - Primary + secondary chord color customization for editor syntax and rendered charts
+  - Rendered-song font selection (Inter, Vidaloka, Monospace)
+  - Theme presets: **Stage Dark**, **Print Light**, **Classic**, and **Custom**
 - **2-Pane View** — side-by-side display (lyrics + chords, two songs, etc.)
 - **Compressed / Spaced Layout** — toggle density to fit more on screen or improve readability
 - **Word Wrap** — responsive text wrapping for any screen size
@@ -265,6 +270,7 @@ The built-in ChordPro editor provides a rich editing experience with real-time f
 - **Secondary Chord Lines** — support for alternate voicings / secondary instrument chords (distinct color)
 - **Zoom Controls** — pinch-to-zoom, buttons, or font scaling with persistent preference
 - **Responsive Mobile/Tablet Zoom** — automatic zoom adjustments per device class
+- **High Contrast Mode** — optional low-vision theme with stronger borders, brighter focus rings, and higher color separation
 - **Print Stylesheet** — clean print output that strips UI chrome and forces readable colors
 
 ### 🎨 CSS Design System ✅
@@ -323,9 +329,9 @@ The web app uses a comprehensive CSS design system defined in `apps/web/src/styl
 
 ### 📚 Song Sets & Groups
 
-- **Song Groups** — organize songs into reusable collections
-- **Delegated Song Groups** — assign group management to other users
-- **Shared Songs** — share individual songs with specific users or teams
+- **Song Groups** — implemented reusable song collections with filtering and inline management
+- **Delegated Song Groups** — implemented delegated per-group management for assigned users
+- **Shared Songs** — implemented authenticated sharing to individual users, reusable teams, and other organizations, including an editable batch-share workflow plus a “Shared with me” library scope
 - **Shared Sets** — share entire setlists for collaborative performance prep
 - **Categories** — high-level buckets (e.g. Weddings, Church, Special Events)
 
@@ -353,6 +359,7 @@ The web app uses a comprehensive CSS design system defined in `apps/web/src/styl
 - **NoSleep Mode** — prevent screen dimming during performance with visual indicator (carried forward from current site)
 - **Disable Double-Tap Zoom** — reliable stage tapping without accidental zoom on touch devices
 - **Persistent User Preferences** — theme, bracket visibility, comment visibility, notation mode, zoom level all saved and restored per user
+- **Accessibility polish** — stronger global focus states, screen-reader labels on editor/toolbars/dialogs, and 44px coarse-pointer touch targets
 - **Toolbar Conditional Display** — song-specific controls hidden until a song is loaded (clean empty state)
 - **Button Actions** — inline controls for transpose, song switching, scroll
 - **Feedback & Recommendations** — in-app feedback loop for feature requests and song suggestions
@@ -874,6 +881,9 @@ vpc-music/
 | `/api/songs/:id/usage` | `features/songs/` | Song usage tracking (log, list, delete) |
 | `/api/songs/:id/share` | `features/share/` | Create share link |
 | `/api/songs/:id/shares` | `features/share/` | List, revoke, update share tokens |
+| `/api/share-teams` | `features/share/` | Reusable authenticated share-team CRUD |
+| `/api/share-organizations` | `features/share/` | List organizations available for admin batch sharing |
+| `/api/songs/batch/organization-shares` | `features/share/` | List, create, and edit organization-level song shares in batch |
 | `/api/shared/:token` | `features/share/` | Public song access via share token (no auth) |
 | `/api/setlists` | `features/setlists/` | Setlist CRUD, add/remove/reorder songs, mark complete/reopen |
 | `/api/events` | `features/events/` | Event CRUD with optional setlist links |
@@ -907,9 +917,9 @@ vpc-music/
 
 ## Testing
 
-The project uses **Vitest** across the web app, API, and workspace scripts with **1,457 verified tests** in the main suites (**1,067 web + 296 API + 94 scripts**) — all passing and re-verified across the latest suite passes after the SongList tag-filter chunk, the tempo visual blinker chunk, the tempo range filter chunk, the associated shout chunk, the AKA / alternate names chunk, the sort options chunk, the pagination chunk, the key-aware search chunk, the tag CRUD metadata-coverage chunk, the song-category metadata chunk, the song-groups chunk, the dedicated org creation dialog / auto-switch polish, arbitrary multi-song library ZIP export, org settings UI, org switcher coverage, and org API success-coverage chunks.
+The project uses **Vitest** across the web app, API, and workspace scripts with **1,466 verified tests** in the main suites (**1,070 web + 302 API + 94 scripts**) — all passing in the latest full-suite validation before the direct shared-songs chunk. The direct shared-songs work was then validated with focused runs covering **162 web tests** and **159 API tests**.
 
-### Web Tests (`apps/web`) — 1,067 tests, 54 files
+### Web Tests (`apps/web`) — 1,070 tests, 54 files
 - **Environment:** jsdom with `@testing-library/react` + `@testing-library/jest-dom`
 - **Run:** `pnpm test` (from root or `apps/web`)
 - **Coverage areas:**
@@ -921,7 +931,7 @@ The project uses **Vitest** across the web app, API, and workspace scripts with 
   - **Features:** share management, song variations, real-time sync, export formats, plain text export, PDF import, OnSong/OpenSong import, bulk import progress, import preview, setlist zip export, song edit history, sticky notes, syntax highlighting, inline validation, performance mode, key compatibility
   - **PWA/Offline:** manifest, meta tags, Vite config, service worker registration, offline fallback, TypeScript declarations
 
-### API Tests (`apps/api`) — 296 tests, 13 files
+### API Tests (`apps/api`) — 302 tests, 13 files
 - **Environment:** Node.js
 - **Run:** `pnpm --filter @vpc-music/api test`
 - **Coverage areas:** Error handling middleware (`createError`, `asyncHandler`, `errorHandler`), auth middleware (JWT validation), org context middleware (`orgContext`, `requireOrg`, `requireOrgRole`), previously public route 401 regression coverage (including most-used endpoint), protected-route role matrix coverage, organization route auth/validation plus create/list/update/delete success-path coverage, email utilities (send, template builders), conductor/real-time sync (room management, events), PDF-to-ChordPro conversion pipeline (column detection, line assembly, chord classification, chord-to-lyric alignment, metadata extraction, section detection, plain-text fallback)
@@ -1005,13 +1015,16 @@ Test files live alongside their source in `src/test/` directories within each ap
 - [x] **Tag CRUD metadata coverage (Section 9, chunk 9)** — SongEditPage now has focused coverage for creating songs with tags, appending tags on edit, and clearing all tag pills back to an empty payload, completing the remaining metadata test gap for the song library; re-verified in the latest 1,457 passing tests across web, API, and script suites
 - [x] **Song categories (Section 9.2, chunk 10)** — songs now support optional category metadata end-to-end across the schema, shared model, API create/update/share responses, SongEditPage, SongListPage category filtering, and authenticated plus shared song views, with focused coverage and full web/API/script suite validation; re-verified in the latest 1,457 passing tests across web, API, and script suites
 - [x] **Song groups (Section 9.2, chunk 11)** — added reusable org-scoped song groups with `GET/POST/PUT/DELETE /api/songs/groups`, bulk membership management, song-library `groupId` filtering, SongListPage group filtering plus inline group management, and focused validation across 122 web tests plus 146 API tests covering the affected client, page, filter, and role-gating flows
+- [x] **Delegated group management (Section 9.2, chunk 12)** — added delegated song-group managers via `song_group_managers`, org-admin assignment with `PUT /api/songs/groups/:groupId/managers`, per-group `canManage` state in the song-group listing response, delegated observer access to manage assigned groups from SongListPage, and focused validation across 125 web tests plus 152 API tests for the affected UI, client, permissions, and route coverage
+- [x] **Direct shared songs (Section 9.2, chunk 13)** — added authenticated song-to-user sharing via `song_user_shares` with `POST/GET/DELETE /api/songs/:id/direct-shares`, locked authenticated `GET /api/songs/:id` access down to the active organization or a direct share, added a SongListPage “Shared with me” scope backed by `GET /api/songs?scope=shared`, extended ShareManageDialog with direct-user sharing by email, and validated the affected web/API/client coverage in focused runs (162 web tests + 159 API tests)
+- [x] **Team shared songs (Section 9.2, chunk 14)** — added reusable org-scoped share teams via `share_teams`, `share_team_members`, and `song_team_shares`, exposed `GET/POST/DELETE /api/share-teams` plus `GET/POST/DELETE /api/songs/:id/team-shares`, expanded authenticated `GET /api/songs?scope=shared` and `GET /api/songs/:id` access checks to include team membership, extended ShareManageDialog with share-team creation and team-share management, and validated the affected focused coverage in 152 passing web tests plus 170 passing API tests
+- [x] **Organization shared songs (Section 9.2, chunk 15)** — added admin batch sharing to other organizations via `song_organization_shares`, exposed `GET /api/share-organizations` plus `GET/POST/PATCH /api/songs/batch/organization-shares`, expanded authenticated `GET /api/songs?scope=shared` and `GET /api/songs/:id` access checks to include org-level shares, added SongListPage batch share/edit UI for owners and admins, and validated the affected focused coverage in 144 passing web tests plus 17 passing API tests
 - [x] **Import / Export / Migration (Section 8, chunks 1–10)** — implemented `POST /api/songs/import/onsong` using shared `onSongToChordPro()` support for both `.onsong` plain-text files and OpenSong `.xml`; SongEditPage import picker now accepts `.onsong` and `.xml`; imported metadata (title, artist, key, tempo) is normalized into ChordPro directives before save; SongEditPage also now accepts multiple files and bulk imports ChordPro, `.chrd` / `.txt`, `.onsong`, OpenSong `.xml`, and PDF files with in-page progress and per-file result links; added preview-only conversion routes for `.chrd`, OnSong/OpenSong, and PDF so single-file imports now load into SongEditPage for rendered review before saving; added setlist zip export in ChordPro, OnSong, and plain text from SetlistViewPage via `/api/setlists/:id/export/zip`; added arbitrary multi-song library zip export from SongListPage via `/api/songs/export/zip` for selected songs in ChordPro, OnSong, and plain text; export endpoints now support `variationId` so the active variation can be exported as ChordPro, OnSong, or PDF from SongViewPage; added plain text `.txt` export via shared `chordProToPlainText()` and SongView export menu; extracted legacy `.chrd` parsing into shared `convertChrdToChordPro()` logic, reused it in the song import API, added `pnpm migrate:chrd` to batch-convert the documented `songList/` library into sibling `.chopro` files while preserving nested folders, preserve legacy `^` secondary chord lines as ChordPro comment lines during import and batch migration, and now emit `migration-report.json` plus `migration-report.txt` beside the converted library; re-verified across the latest suite passes with 1,457 passing tests across web, API, and script suites
 
 ### Still Pending From This Pass
 
 - [ ] **Collaboration & Rehearsal (Section 7.2)** — comment threads on songs, rehearsal markers, rehearsal notes layer (requires new DB schema tables)
 - [ ] **Duplicate detection (Section 7.3)** — flag when a new song closely matches an existing one (title or lyrics similarity)
-- [ ] **Song library metadata & discovery follow-up (Section 9.2)** — delegated group management and non-public shared-song management
 
 ---
 

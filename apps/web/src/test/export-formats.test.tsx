@@ -34,6 +34,9 @@ vi.mock("@/lib/api-client", () => ({
     list: vi.fn(),
     revoke: vi.fn(),
     update: vi.fn(),
+    listDirect: vi.fn().mockResolvedValue({ directShares: [] }),
+    createDirect: vi.fn(),
+    removeDirect: vi.fn(),
   },
   songUsageApi: {
     list: (...args: any[]) => mockListUsage(...args),

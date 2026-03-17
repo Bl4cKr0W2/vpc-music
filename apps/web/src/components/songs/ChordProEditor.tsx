@@ -57,6 +57,34 @@ interface ChordProEditorProps {
 }
 
 type ViewMode = "edit" | "split" | "preview";
+type EditorMode = "beginner" | "advanced";
+
+const EDITOR_MODE_STORAGE_KEY = "vpc-editor-mode";
+
+const BEGINNER_EXAMPLES = [
+  { label: "Full Song Example", value: SECTION_INSERTS[18].value },
+  { label: "Metadata Block", value: SECTION_INSERTS[17].value },
+  { label: "Verse", value: "{comment: Verse 1}" },
+  { label: "Chorus", value: "{comment: Chorus}" },
+];
+
+function getStoredEditorMode(): EditorMode {
+  if (typeof document !== "undefined") {
+    const datasetMode = document.documentElement.dataset.editorMode;
+    if (datasetMode === "beginner" || datasetMode === "advanced") {
+      return datasetMode;
+    }
+  }
+
+  if (typeof window !== "undefined") {
+    const storedMode = localStorage.getItem(EDITOR_MODE_STORAGE_KEY);
+    if (storedMode === "beginner" || storedMode === "advanced") {
+      return storedMode;
+    }
+  }
+
+  return "advanced";
+}
 
 /**
  * Rich ChordPro editor with:
@@ -70,6 +98,8 @@ type ViewMode = "edit" | "split" | "preview";
  */
 export function ChordProEditor({ value, onChange, metadata, onSave }: ChordProEditorProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [editorMode, setEditorMode] = useState<EditorMode>(getStoredEditorMode);
+  const [helpOpen, setHelpOpen] = useState<boolean | undefined>(undefined);
   const [sectionDropdownOpen, setSectionDropdownOpen] = useState(false);
   const sectionBtnRef = useRef<HTMLButtonElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -136,12 +166,34 @@ export function ChordProEditor({ value, onChange, metadata, onSave }: ChordProEd
     catch { /* ignore */ }
   }, [formatOnSave]);
 
+  useEffect(() => {
+    setHelpOpen(editorMode === "beginner");
+    if (editorMode === "beginner" && viewMode === "split") {
+      setViewMode("edit");
+    }
+  }, [editorMode, viewMode]);
+
+  useEffect(() => {
+    const syncEditorMode = () => setEditorMode(getStoredEditorMode());
+    window.addEventListener("storage", syncEditorMode);
+    window.addEventListener("vpc-appearance-change", syncEditorMode as EventListener);
+    return () => {
+      window.removeEventListener("storage", syncEditorMode);
+      window.removeEventListener("vpc-appearance-change", syncEditorMode as EventListener);
+    };
+  }, []);
+
   const handleFormat = useCallback(() => {
     const formatted = formatChordPro(value);
     if (formatted !== value) {
       onChange(formatted);
     }
   }, [value, onChange]);
+
+  const findSectionLine = useCallback((matcher: RegExp) => {
+    const match = sections.find((section) => matcher.test(section.name));
+    return match?.line ?? null;
+  }, [sections]);
 
   // Update current line on cursor movement
   const updateCurrentLine = useCallback(() => {
@@ -640,6 +692,43 @@ export function ChordProEditor({ value, onChange, metadata, onSave }: ChordProEd
         return;
       }
 
+      // F1 — toggle help panel
+      if (e.key === "F1") {
+        e.preventDefault();
+        setHelpOpen((prev) => !(prev ?? false));
+        return;
+      }
+
+      // Ctrl+Shift+F — format document
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === "f") {
+        e.preventDefault();
+        handleFormat();
+        return;
+      }
+
+      // Ctrl+P — open section navigator
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === "p") {
+        if (sections.length > 0) {
+          e.preventDefault();
+          setSectionNavOpen(true);
+        }
+        return;
+      }
+
+      // Ctrl+1 / Ctrl+2 / Ctrl+3 — jump to common sections
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && ["1", "2", "3"].includes(e.key)) {
+        e.preventDefault();
+        const line = e.key === "1"
+          ? findSectionLine(/^verse/i)
+          : e.key === "2"
+            ? findSectionLine(/^chorus/i)
+            : findSectionLine(/^bridge/i);
+        if (line !== null) {
+          jumpToLine(line);
+        }
+        return;
+      }
+
       // Ctrl+/ — toggle comment on selected line(s)
       if ((e.ctrlKey || e.metaKey) && e.key === "/") {
         e.preventDefault();
@@ -744,7 +833,7 @@ export function ChordProEditor({ value, onChange, metadata, onSave }: ChordProEd
         return;
       }
     },
-    [value, onChange, onSave, insertAtCursor, handleMouseUp],
+    [value, onChange, onSave, insertAtCursor, handleMouseUp, formatOnSave, handleFormat, sections.length, findSectionLine, jumpToLine],
   );
 
   // ── Sync overlay scroll with textarea (and optionally preview) ──
@@ -769,6 +858,8 @@ export function ChordProEditor({ value, onChange, metadata, onSave }: ChordProEd
   const isValidChord = chordInput.trim()
     ? CHORD_REGEX.test(chordInput.trim()) || /^[A-G]/.test(chordInput.trim())
     : null;
+  const isBeginnerMode = editorMode === "beginner";
+  const showPowerTools = !isBeginnerMode;
 
   // ── Slash-command detection on change ─────────
   const handleChange = useCallback(
@@ -792,9 +883,10 @@ export function ChordProEditor({ value, onChange, metadata, onSave }: ChordProEd
   );
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-2" role="region" aria-label="ChordPro editor">
       {/* Toolbar */}
-      <div className="flex items-center gap-2">
+      <div className="sticky top-16 z-20 -mx-2 rounded-lg border border-transparent bg-[hsl(var(--background))/0.95] px-2 py-2 backdrop-blur supports-backdrop-filter:bg-[hsl(var(--background))/0.85] md:mx-0" data-testid="editor-toolbar">
+      <div className="flex flex-wrap items-center gap-2">
         <label className="text-sm font-medium text-[hsl(var(--foreground))]">
           Content (ChordPro format)
         </label>
@@ -812,34 +904,39 @@ export function ChordProEditor({ value, onChange, metadata, onSave }: ChordProEd
               }`}
               title="Editor only"
               data-testid="view-mode-edit"
+              aria-label="Switch to editor-only mode"
             >
               <Pencil className="h-3 w-3" />
               Edit
             </button>
-            <button
-              type="button"
-              onClick={() => setViewMode("split")}
-              className={`inline-flex items-center gap-1 border-x border-[hsl(var(--border))] px-2 py-1 text-xs font-medium transition-colors ${
-                viewMode === "split"
-                  ? "bg-[hsl(var(--secondary))] text-[hsl(var(--secondary-foreground))]"
-                  : "text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]"
-              }`}
-              title="Split view"
-              data-testid="view-mode-split"
-            >
-              <Columns className="h-3 w-3" />
-              Split
-            </button>
+            {showPowerTools && (
+              <button
+                type="button"
+                onClick={() => setViewMode("split")}
+                className={`inline-flex items-center gap-1 border-x border-[hsl(var(--border))] px-2 py-1 text-xs font-medium transition-colors ${
+                  viewMode === "split"
+                    ? "bg-[hsl(var(--secondary))] text-[hsl(var(--secondary-foreground))]"
+                    : "text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]"
+                }`}
+                title="Split view"
+                data-testid="view-mode-split"
+                aria-label="Switch to split editor and preview mode"
+              >
+                <Columns className="h-3 w-3" />
+                Split
+              </button>
+            )}
             <button
               type="button"
               onClick={() => setViewMode("preview")}
-              className={`inline-flex items-center gap-1 px-2 py-1 text-xs font-medium transition-colors rounded-r-md ${
+              className={`inline-flex items-center gap-1 px-2 py-1 text-xs font-medium transition-colors ${
                 viewMode === "preview"
                   ? "bg-[hsl(var(--secondary))] text-[hsl(var(--secondary-foreground))]"
                   : "text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]"
-              }`}
+              } ${showPowerTools ? "rounded-r-md" : "border-l border-[hsl(var(--border))] rounded-r-md"}`}
               title="Preview only"
               data-testid="view-mode-preview"
+              aria-label="Switch to preview-only mode"
             >
               <Eye className="h-3 w-3" />
               Preview
@@ -849,70 +946,80 @@ export function ChordProEditor({ value, onChange, metadata, onSave }: ChordProEd
           {/* Section insert dropdown (hidden in preview-only mode) */}
           {viewMode !== "preview" && (
             <>
-              {/* Format button */}
-              <button
-                type="button"
-                onClick={handleFormat}
-                className="inline-flex items-center gap-1.5 rounded-md border border-[hsl(var(--border))] px-3 py-1.5 text-xs font-medium text-[hsl(var(--foreground))] hover:bg-[hsl(var(--muted))] transition-colors"
-                title="Format document (normalize directives, spacing, etc.)"
-                data-testid="format-btn"
-              >
-                <Wand2 className="h-3.5 w-3.5" />
-                Format
-              </button>
-
-              {/* Format on save toggle */}
-              <label
-                className="inline-flex cursor-pointer items-center gap-1.5 text-xs text-[hsl(var(--muted-foreground))]"
-                title="Auto-format when saving"
-                data-testid="format-on-save-label"
-              >
-                <input
-                  type="checkbox"
-                  checked={formatOnSave}
-                  onChange={(e) => setFormatOnSave(e.target.checked)}
-                  className="h-3.5 w-3.5 accent-[hsl(var(--secondary))]"
-                  data-testid="format-on-save-checkbox"
-                />
-                Auto
-              </label>
-
-              {/* Section navigation dropdown */}
-              {sections.length > 0 && (
-                <div className="relative">
+              {showPowerTools && (
+                <>
+                  {/* Format button */}
                   <button
-                    ref={sectionNavBtnRef}
                     type="button"
-                    onClick={() => setSectionNavOpen((o) => !o)}
+                    onClick={handleFormat}
                     className="inline-flex items-center gap-1.5 rounded-md border border-[hsl(var(--border))] px-3 py-1.5 text-xs font-medium text-[hsl(var(--foreground))] hover:bg-[hsl(var(--muted))] transition-colors"
-                    data-testid="section-nav-btn"
+                    title="Format document (normalize directives, spacing, etc.)"
+                    data-testid="format-btn"
+                    aria-label="Format ChordPro document"
                   >
-                    <MapPin className="h-3.5 w-3.5" />
-                    Go to Section
-                    <ChevronDown className="h-3 w-3" />
+                    <Wand2 className="h-3.5 w-3.5" />
+                    Format
                   </button>
-                  {sectionNavOpen && (
-                    <div
-                      ref={sectionNavDropdownRef}
-                      className="absolute right-0 z-50 mt-1 max-h-64 w-48 overflow-y-auto rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--popover))] py-1 shadow-lg"
-                      data-testid="section-nav-dropdown"
-                    >
-                      {sections.map((sec) => (
-                        <button
-                          key={`${sec.name}-${sec.line}`}
-                          type="button"
-                          onClick={() => jumpToLine(sec.line)}
-                          className="flex w-full items-center justify-between px-3 py-1.5 text-left text-sm text-[hsl(var(--popover-foreground))] hover:bg-[hsl(var(--accent))] hover:text-[hsl(var(--accent-foreground))] transition-colors"
+
+                  {/* Format on save toggle */}
+                  <label
+                    className="inline-flex cursor-pointer items-center gap-1.5 text-xs text-[hsl(var(--muted-foreground))]"
+                    title="Auto-format when saving"
+                    data-testid="format-on-save-label"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={formatOnSave}
+                      onChange={(e) => setFormatOnSave(e.target.checked)}
+                      className="h-3.5 w-3.5 accent-[hsl(var(--secondary))]"
+                      data-testid="format-on-save-checkbox"
+                      aria-label="Auto-format document on save"
+                    />
+                    Auto
+                  </label>
+
+                  {/* Section navigation dropdown */}
+                  {sections.length > 0 && (
+                    <div className="relative">
+                      <button
+                        ref={sectionNavBtnRef}
+                        type="button"
+                        onClick={() => setSectionNavOpen((o) => !o)}
+                        className="inline-flex items-center gap-1.5 rounded-md border border-[hsl(var(--border))] px-3 py-1.5 text-xs font-medium text-[hsl(var(--foreground))] hover:bg-[hsl(var(--muted))] transition-colors"
+                        data-testid="section-nav-btn"
+                        aria-label="Open section navigation menu"
+                        aria-expanded={sectionNavOpen}
+                      >
+                        <MapPin className="h-3.5 w-3.5" />
+                        Go to Section
+                        <ChevronDown className="h-3 w-3" />
+                      </button>
+                      {sectionNavOpen && (
+                        <div
+                          ref={sectionNavDropdownRef}
+                          className="fixed inset-x-4 bottom-4 z-50 max-h-[45vh] overflow-y-auto rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--popover))] py-1 shadow-lg md:absolute md:right-0 md:inset-x-auto md:bottom-auto md:mt-1 md:max-h-64 md:w-48"
+                          data-testid="section-nav-dropdown"
+                          role="dialog"
+                          aria-label="Section navigation"
                         >
-                          <span>{sec.name}</span>
-                          <span className="text-[10px] text-[hsl(var(--muted-foreground))]">
-                            Ln {sec.line + 1}
-                          </span>
-                        </button>
-                      ))}
+                          {sections.map((sec) => (
+                            <button
+                              key={`${sec.name}-${sec.line}`}
+                              type="button"
+                              onClick={() => jumpToLine(sec.line)}
+                              className="flex w-full items-center justify-between px-3 py-1.5 text-left text-sm text-[hsl(var(--popover-foreground))] hover:bg-[hsl(var(--accent))] hover:text-[hsl(var(--accent-foreground))] transition-colors"
+                            >
+                              <span>{sec.name}</span>
+                              <span className="text-[10px] text-[hsl(var(--muted-foreground))]">
+                                Ln {sec.line + 1}
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
-                </div>
+                </>
               )}
 
               <div className="relative">
@@ -922,27 +1029,33 @@ export function ChordProEditor({ value, onChange, metadata, onSave }: ChordProEd
                 onClick={() => setSectionDropdownOpen((o) => !o)}
                 className="inline-flex items-center gap-1.5 rounded-md border border-[hsl(var(--border))] px-3 py-1.5 text-xs font-medium text-[hsl(var(--foreground))] hover:bg-[hsl(var(--muted))] transition-colors"
                 data-testid="section-insert-btn"
+                aria-label="Open insert section menu"
+                aria-expanded={sectionDropdownOpen}
               >
                 <Music className="h-3.5 w-3.5" />
-                Insert Section
+                {isBeginnerMode ? "Insert" : "Insert Section"}
                 <ChevronDown className="h-3 w-3" />
               </button>
               {sectionDropdownOpen && (
-                <div
-                  ref={dropdownRef}
-                  className="absolute right-0 z-50 mt-1 max-h-64 w-48 overflow-y-auto rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--popover))] py-1 shadow-lg"
-                  data-testid="section-dropdown"
-                >
-                  {SECTION_INSERTS.map(({ label, value: v }) => (
-                    <button
-                      key={label}
-                      type="button"
-                      onClick={() => insertAtCursor(v)}
-                      className="w-full px-3 py-1.5 text-left text-sm text-[hsl(var(--popover-foreground))] hover:bg-[hsl(var(--accent))] hover:text-[hsl(var(--accent-foreground))] transition-colors"
-                    >
-                      {label}
-                    </button>
-                  ))}
+                <div className="relative">
+                  <div
+                    ref={dropdownRef}
+                    className="fixed inset-x-4 bottom-4 z-50 max-h-[45vh] overflow-y-auto rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--popover))] py-1 shadow-lg md:absolute md:right-0 md:inset-x-auto md:bottom-auto md:mt-1 md:max-h-64 md:w-48"
+                    data-testid="section-dropdown"
+                    role="dialog"
+                    aria-label="Insert section options"
+                  >
+                    {SECTION_INSERTS.map(({ label, value: v }) => (
+                      <button
+                        key={label}
+                        type="button"
+                        onClick={() => insertAtCursor(v)}
+                        className="w-full px-3 py-1.5 text-left text-sm text-[hsl(var(--popover-foreground))] hover:bg-[hsl(var(--accent))] hover:text-[hsl(var(--accent-foreground))] transition-colors"
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
@@ -950,12 +1063,84 @@ export function ChordProEditor({ value, onChange, metadata, onSave }: ChordProEd
           )}
         </div>
       </div>
+      </div>
 
       {/* Hint (hidden in preview-only mode) */}
       {viewMode !== "preview" && (
         <p className="text-xs text-[hsl(var(--muted-foreground))]">
-          Select any word and type a chord to insert it • Use the dropdown to add section markers • <kbd className="rounded border border-[hsl(var(--border))] bg-[hsl(var(--muted))] px-1 py-0.5 text-[10px] font-mono">Ctrl+Space</kbd> command palette • <kbd className="rounded border border-[hsl(var(--border))] bg-[hsl(var(--muted))] px-1 py-0.5 text-[10px] font-mono">/</kbd> slash commands • <kbd className="rounded border border-[hsl(var(--border))] bg-[hsl(var(--muted))] px-1 py-0.5 text-[10px] font-mono">Ctrl+S</kbd> to save
+          {isBeginnerMode ? (
+            <>
+              Start with an example below, keep the help panel open while you learn, and use the Insert menu for common song sections.
+            </>
+          ) : (
+            <>
+              Select any word and type a chord to insert it • Use the dropdown to add section markers • <kbd className="rounded border border-[hsl(var(--border))] bg-[hsl(var(--muted))] px-1 py-0.5 text-[10px] font-mono">Ctrl+Space</kbd> command palette • <kbd className="rounded border border-[hsl(var(--border))] bg-[hsl(var(--muted))] px-1 py-0.5 text-[10px] font-mono">/</kbd> slash commands • <kbd className="rounded border border-[hsl(var(--border))] bg-[hsl(var(--muted))] px-1 py-0.5 text-[10px] font-mono">Ctrl+Shift+F</kbd> format • <kbd className="rounded border border-[hsl(var(--border))] bg-[hsl(var(--muted))] px-1 py-0.5 text-[10px] font-mono">F1</kbd> help • <kbd className="rounded border border-[hsl(var(--border))] bg-[hsl(var(--muted))] px-1 py-0.5 text-[10px] font-mono">Ctrl+S</kbd> to save
+            </>
+          )}
         </p>
+      )}
+
+      {viewMode !== "preview" && isBeginnerMode && (
+        <div
+          className="rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--muted))]/60 p-3"
+          data-testid="beginner-example-panel"
+        >
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-sm font-medium text-[hsl(var(--foreground))]">Beginner tools</p>
+              <p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">
+                Examples stay visible by default so you can build a song without memorizing directives first.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setHelpOpen(true)}
+              className="btn-outline btn-sm"
+            >
+              Open Help
+            </button>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {BEGINNER_EXAMPLES.map((example) => (
+              <button
+                key={example.label}
+                type="button"
+                onClick={() => insertAtCursor(example.value)}
+                className="btn-outline btn-sm"
+              >
+                {example.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {viewMode !== "preview" && showPowerTools && (
+        <div
+          className="flex flex-wrap gap-2 text-xs text-[hsl(var(--muted-foreground))]"
+          data-testid="advanced-shortcuts"
+        >
+          <span className="rounded-full border border-[hsl(var(--border))] px-2 py-1">Ctrl+Space palette</span>
+          <span className="rounded-full border border-[hsl(var(--border))] px-2 py-1">/ slash commands</span>
+          <span className="rounded-full border border-[hsl(var(--border))] px-2 py-1">Ctrl+Shift+F format</span>
+          <span className="rounded-full border border-[hsl(var(--border))] px-2 py-1">Alt+↑/↓ transpose</span>
+        </div>
+      )}
+
+      {viewMode !== "preview" && sections.length > 0 && (
+        <div className="flex gap-2 overflow-x-auto pb-1" data-testid="section-chip-bar" aria-label="Quick section navigation">
+          {sections.map((section) => (
+            <button
+              key={`${section.name}-${section.line}`}
+              type="button"
+              onClick={() => jumpToLine(section.line)}
+              className="btn-outline btn-sm whitespace-nowrap"
+              aria-label={`Jump to section ${section.name}`}
+            >
+              {section.name}
+            </button>
+          ))}
+        </div>
       )}
 
       {/* Editor / Preview content area */}
@@ -967,7 +1152,7 @@ export function ChordProEditor({ value, onChange, metadata, onSave }: ChordProEd
               {/* Line number gutter */}
               <div
                 ref={gutterRef}
-                className="pointer-events-none select-none overflow-hidden border-r border-[hsl(var(--border))] bg-[hsl(var(--muted))] py-2 pr-2 text-right font-mono text-xs leading-[20px] text-[hsl(var(--muted-foreground))] rounded-l-md"
+                className="pointer-events-none select-none overflow-hidden rounded-l-md border-r border-[hsl(var(--border))] bg-[hsl(var(--muted))] py-2 pr-2 text-right font-mono text-xs leading-5 text-[hsl(var(--muted-foreground))]"
                 style={{ minWidth: `${Math.max(2, String(lineCount).length) * 0.75 + 0.75}rem` }}
                 aria-hidden="true"
                 data-testid="line-number-gutter"
@@ -986,7 +1171,7 @@ export function ChordProEditor({ value, onChange, metadata, onSave }: ChordProEd
               <div className="relative flex-1">
                 {/* Current line highlight */}
                 <div
-                  className="pointer-events-none absolute left-0 right-0 z-[5] bg-[hsl(var(--accent))]/10"
+                  className="pointer-events-none absolute left-0 right-0 z-5 bg-[hsl(var(--accent))]/10"
                   style={{
                     top: `${currentLine * 20 + 8 - (textareaRef.current?.scrollTop ?? 0)}px`,
                     height: "20px",
@@ -1009,7 +1194,7 @@ export function ChordProEditor({ value, onChange, metadata, onSave }: ChordProEd
                   onScroll={handleScroll}
                   rows={20}
                   spellCheck={false}
-                  className="relative z-10 w-full rounded-r-md border border-l-0 border-[hsl(var(--input))] bg-transparent px-3 py-2 font-mono text-sm text-transparent caret-[hsl(var(--foreground))] placeholder:text-[hsl(var(--muted-foreground))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))] leading-[20px]"
+                  className="relative z-10 w-full rounded-r-md border border-l-0 border-[hsl(var(--input))] bg-transparent px-3 py-2 font-mono text-sm leading-5 text-transparent caret-[hsl(var(--foreground))] placeholder:text-[hsl(var(--muted-foreground))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))]"
                   placeholder={`{title: Amazing Grace}
 {key: G}
 
@@ -1017,6 +1202,7 @@ export function ChordProEditor({ value, onChange, metadata, onSave }: ChordProEd
 [G]Amazing [G/B]grace, how [C]sweet the [G]sound
 That [G]saved a [Em]wretch like [D]me`}
                   data-testid="chordpro-editor"
+                  aria-label="ChordPro song content editor"
                 />
 
               {/* ── Chord popup ────────────────────────── */}
@@ -1026,6 +1212,9 @@ That [G]saved a [Em]wretch like [D]me`}
                   className="absolute z-50 flex items-center gap-1.5 rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--popover))] p-2 shadow-xl"
                   style={{ left: chordPopup.x, top: chordPopup.y }}
                   data-testid="chord-popup"
+                  role="dialog"
+                  aria-modal="false"
+                  aria-label="Insert chord"
                 >
                   <span className="text-xs text-[hsl(var(--muted-foreground))]">Chord:</span>
                   <input
@@ -1043,6 +1232,7 @@ That [G]saved a [Em]wretch like [D]me`}
                           : "border-amber-500 bg-amber-500/10"
                     }`}
                     data-testid="chord-input"
+                    aria-label="Chord name"
                   />
                   <button
                     type="button"
@@ -1050,6 +1240,7 @@ That [G]saved a [Em]wretch like [D]me`}
                     disabled={!chordInput.trim()}
                     className="rounded-md bg-[hsl(var(--secondary))] px-2.5 py-1 text-xs font-medium text-[hsl(var(--secondary-foreground))] hover:opacity-90 disabled:opacity-40 transition-opacity"
                     data-testid="chord-apply-btn"
+                    aria-label="Apply chord insertion"
                   >
                     Apply
                   </button>
@@ -1067,7 +1258,7 @@ That [G]saved a [Em]wretch like [D]me`}
         {viewMode !== "edit" && (
           <div
             ref={previewRef}
-            className={`overflow-y-auto rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-4 ${
+            className={`song-surface overflow-y-auto rounded-md border border-[hsl(var(--border))] p-4 ${
               viewMode === "split" ? "max-h-[calc(20*20px+1rem)]" : ""
             }`}
             style={viewMode === "split" ? { maxHeight: "calc(20 * 20px + 1rem)" } : undefined}
@@ -1093,7 +1284,7 @@ That [G]saved a [Em]wretch like [D]me`}
       <ValidationPanel source={value} />
 
       {/* Collapsible help section */}
-      <EditorHelpSection onInsertTemplate={insertAtCursor} />
+      <EditorHelpSection onInsertTemplate={insertAtCursor} open={helpOpen} onOpenChange={setHelpOpen} />
 
       {/* Context menu */}
       <EditorContextMenu

@@ -33,6 +33,9 @@ vi.mock("@/lib/api-client", () => ({
     list: vi.fn().mockResolvedValue({ shares: [] }),
     revoke: vi.fn(),
     update: vi.fn().mockResolvedValue({ shareToken: {} }),
+    listDirect: vi.fn().mockResolvedValue({ directShares: [] }),
+    createDirect: vi.fn(),
+    removeDirect: vi.fn(),
     getShared: vi.fn(),
   },
   songUsageApi: {
@@ -101,7 +104,6 @@ function renderPage(songId = "song-1", search = "") {
 describe("SongViewPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     mockAuthValue = {
       user: { id: "u1", email: "admin@test.com", displayName: "Admin", role: "owner" },
       activeOrg: { id: "org1", name: "Test Church", role: "admin" },
@@ -343,7 +345,7 @@ describe("SongViewPage", () => {
       });
     });
 
-    it("calls delete API and navigates on confirm", async () => {
+    it("calls delete API and navigates on modal confirmation", async () => {
       const mockSong = { id: "song-1", title: "X", content: "", key: null, tempo: null, artist: null, tags: null };
       mockGet.mockResolvedValue({ song: mockSong, variations: [] });
       mockDelete.mockResolvedValue({ message: "ok" });
@@ -354,6 +356,7 @@ describe("SongViewPage", () => {
       });
 
       fireEvent.click(screen.getByText("Delete"));
+      fireEvent.click(screen.getByRole("button", { name: /delete song/i }));
 
       await waitFor(() => {
         expect(mockDelete).toHaveBeenCalledWith("song-1");
@@ -373,6 +376,7 @@ describe("SongViewPage", () => {
       });
 
       fireEvent.click(screen.getByText("Delete"));
+      fireEvent.click(screen.getByRole("button", { name: /delete song/i }));
 
       await waitFor(() => {
         expect(toast.error).toHaveBeenCalledWith("Unauthorized");

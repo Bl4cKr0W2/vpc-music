@@ -23,12 +23,17 @@ export function ValidationPanel({ source }: ValidationPanelProps) {
     <div
       className="rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--card))] text-sm"
       data-testid="validation-panel"
+      role="region"
+      aria-label="ChordPro validation issues"
     >
       <button
         type="button"
         onClick={() => setExpanded((e) => !e)}
         className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-[hsl(var(--muted))] transition-colors rounded-md"
         data-testid="validation-toggle"
+        aria-expanded={expanded}
+        aria-controls="validation-issues-panel"
+        aria-label="Toggle validation issues"
       >
         <span className="flex items-center gap-1.5">
           {errorCount > 0 && (
@@ -56,6 +61,7 @@ export function ValidationPanel({ source }: ValidationPanelProps) {
 
       {expanded && (
         <div
+          id="validation-issues-panel"
           className="max-h-40 overflow-y-auto border-t border-[hsl(var(--border))] px-3 py-1.5"
           data-testid="validation-issues"
         >

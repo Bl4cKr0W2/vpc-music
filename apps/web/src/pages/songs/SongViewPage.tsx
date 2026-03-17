@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useParams, Link, useNavigate, useSearchParams } from "react-router-dom";
 import { songsApi, shareApi, songUsageApi, songHistoryApi, variationsApi, stickyNotesApi, setlistsApi, type Song, type SongUsage, type SongVariation, type SongEdit, type StickyNote, type Setlist } from "@/lib/api-client";
+import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { ChordProRenderer, AutoScroll, type ChordProRendererHandle } from "@/components/songs/ChordProRenderer";
 import { ShareManageDialog } from "@/components/songs/ShareManageDialog";
 import { TempoIndicator } from "@/components/songs/TempoIndicator";
@@ -41,6 +42,13 @@ function getTransposeSteps(fromKey: string | null | undefined, toKey: string | n
 
   const ascendingDistance = (toIndex - fromIndex + ALL_KEYS.length) % ALL_KEYS.length;
   return ascendingDistance <= ALL_KEYS.length / 2 ? ascendingDistance : ascendingDistance - ALL_KEYS.length;
+}
+
+interface ConfirmState {
+  title: string;
+  description: string;
+  confirmLabel: string;
+  action: () => Promise<void>;
 }
 
 export function SongViewPage() {
@@ -89,6 +97,8 @@ export function SongViewPage() {
   const [varKey, setVarKey] = useState("");
   const [varContent, setVarContent] = useState("");
   const [savingVariation, setSavingVariation] = useState(false);
+  const [confirmState, setConfirmState] = useState<ConfirmState | null>(null);
+  const [confirmingAction, setConfirmingAction] = useState(false);
   const requestedVariationId = searchParams.get("variation");
   const canSetDefaultVariation =
     user?.role === "owner" || activeOrg?.role === "admin" || activeOrg?.role === "musician";
@@ -108,7 +118,7 @@ export function SongViewPage() {
   };
 
   // Keyboard shortcuts & foot pedal support (PageDown/Up, Arrow keys, etc.)
-  const isModalOpen = showUsageForm || showShareManage || showVariationForm;
+  const isModalOpen = showUsageForm || showShareManage || showVariationForm || Boolean(confirmState);
   useKeyboardShortcuts({
     scrollRef,
     onTransposeUp: () => chordProRef.current?.transposeUp(),
@@ -200,14 +210,17 @@ export function SongViewPage() {
   };
 
   const handleDeleteNote = async (noteId: string) => {
-    if (!id || !confirm("Delete this note?")) return;
-    try {
-      await stickyNotesApi.delete(id, noteId);
-      setStickyNotes((prev) => prev.filter((n) => n.id !== noteId));
-      toast.success("Note deleted");
-    } catch (err: any) {
-      toast.error(err.message || "Failed to delete note");
-    }
+    if (!id) return;
+    setConfirmState({
+      title: "Delete this note?",
+      description: "This note will be permanently removed.",
+      confirmLabel: "Delete note",
+      action: async () => {
+        await stickyNotesApi.delete(id, noteId);
+        setStickyNotes((prev) => prev.filter((n) => n.id !== noteId));
+        toast.success("Note deleted");
+      },
+    });
   };
 
   const openEditNote = (note: StickyNote) => {
@@ -248,14 +261,17 @@ export function SongViewPage() {
   };
 
   const handleDelete = async () => {
-    if (!id || !confirm("Delete this song permanently?")) return;
-    try {
-      await songsApi.delete(id);
-      toast.success("Song deleted");
-      navigate("/songs");
-    } catch (err: any) {
-      toast.error(err.message || "Failed to delete");
-    }
+    if (!id) return;
+    setConfirmState({
+      title: "Delete this song permanently?",
+      description: "This removes the song and its saved variations from the library.",
+      confirmLabel: "Delete song",
+      action: async () => {
+        await songsApi.delete(id);
+        toast.success("Song deleted");
+        navigate("/songs");
+      },
+    });
   };
 
   const handleAddToSetlist = async (setlistId: string) => {
@@ -426,14 +442,30 @@ export function SongViewPage() {
   };
 
   const handleDeleteVariation = async (varId: string) => {
-    if (!id || !confirm("Delete this variation?")) return;
+    if (!id) return;
+    setConfirmState({
+      title: "Delete this variation?",
+      description: "The variation will be permanently removed from this song.",
+      confirmLabel: "Delete variation",
+      action: async () => {
+        await variationsApi.delete(id, varId);
+        setVariations((prev) => prev.filter((v) => v.id !== varId));
+        if (activeVariationId === varId) selectVariation(null);
+        toast.success("Variation deleted");
+      },
+    });
+  };
+
+  const handleConfirmAction = async () => {
+    if (!confirmState) return;
+    setConfirmingAction(true);
     try {
-      await variationsApi.delete(id, varId);
-      setVariations((prev) => prev.filter((v) => v.id !== varId));
-      if (activeVariationId === varId) selectVariation(null);
-      toast.success("Variation deleted");
+      await confirmState.action();
+      setConfirmState(null);
     } catch (err: any) {
-      toast.error(err.message || "Failed to delete variation");
+      toast.error(err.message || "Action failed");
+    } finally {
+      setConfirmingAction(false);
     }
   };
 
@@ -1203,6 +1235,20 @@ export function SongViewPage() {
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        open={Boolean(confirmState)}
+        title={confirmState?.title ?? "Confirm action"}
+        description={confirmState?.description}
+        confirmLabel={confirmState?.confirmLabel}
+        busy={confirmingAction}
+        onClose={() => {
+          if (!confirmingAction) {
+            setConfirmState(null);
+          }
+        }}
+        onConfirm={handleConfirmAction}
+      />
     </div>
   );
 }

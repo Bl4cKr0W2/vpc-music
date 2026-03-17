@@ -49,6 +49,11 @@
 
 /* ── Light mode (default) ─────────────────────────────────────── */
 :root {
+  --song-chord-color: #ca9762;
+  --song-secondary-chord-color: #8b5cf6;
+  --page-background-color: hsl(var(--background));
+  --song-display-font: var(--font-sans);
+
   --background: 210 17% 98%;
   --foreground: 235 100% 10%;
 
@@ -121,6 +126,37 @@
   --chart-5: 210 58% 17%;
 }
 
+/* ── High contrast mode ─────────────────────────────────────── */
+.high-contrast {
+  --background: 0 0% 0%;
+  --foreground: 0 0% 100%;
+
+  --card: 0 0% 0%;
+  --card-foreground: 0 0% 100%;
+
+  --popover: 0 0% 0%;
+  --popover-foreground: 0 0% 100%;
+
+  --primary: 0 0% 100%;
+  --primary-foreground: 0 0% 0%;
+
+  --secondary: 56 100% 50%;
+  --secondary-foreground: 0 0% 0%;
+
+  --muted: 0 0% 10%;
+  --muted-foreground: 0 0% 88%;
+
+  --accent: 190 100% 50%;
+  --accent-foreground: 0 0% 0%;
+
+  --destructive: 0 100% 55%;
+  --destructive-foreground: 0 0% 100%;
+
+  --border: 0 0% 100%;
+  --input: 0 0% 100%;
+  --ring: 56 100% 50%;
+}
+
 /* ── Base layer ────────────────────────────────────────────────── */
 @layer base {
   * {
@@ -136,7 +172,8 @@
   }
 
   body {
-    @apply bg-[hsl(var(--background))] text-[hsl(var(--foreground))];
+    @apply text-[hsl(var(--foreground))];
+    background-color: var(--page-background-color, hsl(var(--background)));
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
@@ -157,8 +194,9 @@
 
   /* Focus ring — brand gold */
   :focus-visible {
-    outline: 2px solid hsl(var(--ring));
-    outline-offset: 2px;
+    outline: 3px solid hsl(var(--ring));
+    outline-offset: 3px;
+    box-shadow: 0 0 0 3px hsl(var(--background)), 0 0 0 6px hsl(var(--ring) / 0.35);
   }
 
   /* Text selection — brand colors */
@@ -185,6 +223,24 @@
   ::-webkit-scrollbar-thumb:hover {
     background: hsl(var(--muted-foreground));
   }
+
+  @media (pointer: coarse) {
+    button,
+    [role="button"],
+    .btn,
+    .btn-sm,
+    .btn-xs,
+    .btn-icon,
+    .input,
+    .select {
+      min-height: 44px;
+    }
+
+    .btn-icon {
+      min-width: 44px;
+      padding: 0.75rem;
+    }
+  }
 }
 
 /* ── Utility classes ──────────────────────────────────────────── */
@@ -195,6 +251,22 @@
 
   .text-gold {
     color: hsl(31 50% 59%);
+  }
+
+  .song-primary-chord {
+    color: var(--song-chord-color, hsl(var(--secondary)));
+  }
+
+  .song-secondary-chord {
+    color: var(--song-secondary-chord-color, hsl(var(--accent)));
+  }
+
+  .song-surface {
+    background-color: var(--page-background-color, hsl(var(--card)));
+  }
+
+  .song-display-font {
+    font-family: var(--song-display-font, var(--font-sans));
   }
 
   .bg-dark-blue {
@@ -251,8 +323,8 @@
 
   .btn:focus-visible {
     @apply outline-none ring-2 ring-offset-2;
-    ring-color: hsl(var(--ring));
-    ring-offset-color: hsl(var(--background));
+    --tw-ring-color: hsl(var(--ring));
+    --tw-ring-offset-color: hsl(var(--background));
   }
 
   .btn:disabled {
@@ -260,7 +332,8 @@
   }
 
   .btn-primary {
-    @apply btn;
+    @apply inline-flex items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-medium transition-all;
+    transition-duration: var(--duration-normal);
     background-color: hsl(var(--secondary));
     color: hsl(var(--secondary-foreground));
   }
@@ -273,7 +346,8 @@
   }
 
   .btn-outline {
-    @apply btn;
+    @apply inline-flex items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-medium transition-all;
+    transition-duration: var(--duration-normal);
     border: 1px solid hsl(var(--border));
     color: hsl(var(--foreground));
     background-color: transparent;
@@ -286,7 +360,8 @@
   }
 
   .btn-ghost {
-    @apply btn;
+    @apply inline-flex items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-medium transition-all;
+    transition-duration: var(--duration-normal);
     color: hsl(var(--muted-foreground));
     background-color: transparent;
   }
@@ -296,7 +371,8 @@
   }
 
   .btn-destructive {
-    @apply btn;
+    @apply inline-flex items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-medium transition-all;
+    transition-duration: var(--duration-normal);
     border: 1px solid hsl(var(--destructive));
     color: hsl(var(--destructive));
     background-color: transparent;
@@ -307,8 +383,8 @@
   }
 
   .btn-success {
-    @apply btn;
-    @apply bg-green-600 text-white;
+    @apply inline-flex items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-medium transition-all bg-green-600 text-white;
+    transition-duration: var(--duration-normal);
   }
   .btn-success:hover {
     @apply bg-green-700;
@@ -316,11 +392,12 @@
 
   .btn-sm {
     @apply px-3 py-1.5 text-xs;
+    min-height: 2.75rem;
   }
 
   .btn-xs {
     @apply px-2 py-1 text-xs;
-  }
+    @apply outline-none ring-4 ring-offset-2;
 
   .btn-icon {
     @apply p-1.5;
@@ -338,16 +415,29 @@
     color: hsl(var(--muted-foreground));
   }
   .input:focus-visible {
-    @apply outline-none ring-2;
-    ring-color: hsl(var(--ring));
+    @apply outline-none ring-4;
+    --tw-ring-color: hsl(var(--ring));
   }
   .input:disabled {
     @apply opacity-50;
   }
 
   .select {
-    @apply input;
-    @apply appearance-auto;
+    @apply w-full rounded-md border px-3 py-2 text-sm transition-colors appearance-auto;
+    border-color: hsl(var(--input));
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    transition-duration: var(--duration-fast);
+  }
+  .select::placeholder {
+    color: hsl(var(--muted-foreground));
+  }
+  .select:focus-visible {
+    @apply outline-none ring-2;
+    --tw-ring-color: hsl(var(--ring));
+  }
+  .select:disabled {
+    @apply opacity-50;
   }
 
   /* ── Cards ────────────────────────────────────────────────── */
@@ -360,7 +450,11 @@
   }
 
   .card-interactive {
-    @apply card cursor-pointer;
+    @apply rounded-lg border cursor-pointer;
+    border-color: hsl(var(--border));
+    background-color: hsl(var(--card));
+    box-shadow: var(--shadow-card);
+    transition: box-shadow var(--duration-normal) ease, border-color var(--duration-normal) ease;
   }
   .card-interactive:hover {
     border-color: hsl(var(--secondary));
@@ -387,18 +481,18 @@
   }
 
   .badge-muted {
-    @apply badge;
+    @apply inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium leading-tight;
     background-color: hsl(var(--muted));
     color: hsl(var(--muted-foreground));
   }
 
   .badge-success {
-    @apply badge;
+    @apply inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium leading-tight;
     @apply bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400;
   }
 
   .badge-warning {
-    @apply badge;
+    @apply inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium leading-tight;
     @apply bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400;
   }
 
@@ -427,7 +521,8 @@
   }
 
   .section-title {
-    @apply text-lg font-brand flex items-center gap-2;
+    @apply text-lg flex items-center gap-2;
+    font-family: var(--font-serif);
     color: hsl(var(--foreground));
   }
 
@@ -442,7 +537,8 @@
   }
 
   .page-title {
-    @apply text-2xl font-brand;
+    @apply text-2xl;
+    font-family: var(--font-serif);
     color: hsl(var(--foreground));
   }
 

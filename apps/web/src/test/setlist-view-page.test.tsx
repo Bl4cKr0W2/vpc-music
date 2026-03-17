@@ -89,7 +89,6 @@ const mockSongs = [
 describe("SetlistViewPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     mockExportZip.mockResolvedValue({ ok: true, blob: () => Promise.resolve(new Blob(["zip"])) });
     Object.defineProperty(URL, "createObjectURL", {
       writable: true,
@@ -272,6 +271,7 @@ describe("SetlistViewPage", () => {
       });
 
       fireEvent.click(screen.getByText("Delete"));
+      fireEvent.click(screen.getByRole("button", { name: /delete setlist/i }));
 
       await waitFor(() => {
         expect(mockDeleteSetlist).toHaveBeenCalledWith("sl-1");
@@ -290,6 +290,7 @@ describe("SetlistViewPage", () => {
       });
 
       fireEvent.click(screen.getByText("Delete"));
+      fireEvent.click(screen.getByRole("button", { name: /delete setlist/i }));
 
       await waitFor(() => {
         expect(toast.error).toHaveBeenCalledWith("Cannot delete");

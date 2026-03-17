@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { eq, ilike, or, and, asc, desc, sql, inArray, gte, lte } from "drizzle-orm";
 import { db } from "../../db.js";
-import { songs, songVariations, songUsages, songEdits, songGroups, songGroupSongs } from "../../schema/index.js";
+import { songs, songVariations, songUsages, songEdits, songGroups, songGroupSongs, songGroupManagers, songOrganizationShares, songTeamShares, songUserShares, shareTeamMembers, organizationMembers, organizations, users } from "../../schema/index.js";
 import { createError, asyncHandler } from "../../middlewares/errorHandler.js";
 import { auth } from "../../middlewares/auth.js";
 import { orgContext, requireOrg, requireOrgRole } from "../../middlewares/orgContext.js";
@@ -80,6 +80,194 @@ function buildExportContent(baseSong, variation) {
   };
 }
 
+function hasBroadSongGroupAccess(req) {
+  return req.user?.role === "owner" || req.orgRole === "admin" || req.orgRole === "musician";
+}
+
+async function loadSongGroupForOrganization(groupId, organizationId) {
+  const [group] = await db
+    .select({
+      id: songGroups.id,
+      name: songGroups.name,
+      organizationId: songGroups.organizationId,
+    })
+    .from(songGroups)
+    .where(and(eq(songGroups.id, groupId), eq(songGroups.organizationId, organizationId)))
+    .limit(1);
+
+  return group || null;
+}
+
+async function userCanManageSongGroup(req, groupId) {
+  if (hasBroadSongGroupAccess(req)) {
+    return true;
+  }
+
+  if (!req.org || !req.user?.id || typeof db.select !== "function") {
+    return false;
+  }
+
+  const [manager] = await db
+    .select({ id: songGroupManagers.id })
+    .from(songGroupManagers)
+    .innerJoin(songGroups, eq(songGroupManagers.groupId, songGroups.id))
+    .where(
+      and(
+        eq(songGroupManagers.groupId, groupId),
+        eq(songGroupManagers.userId, req.user.id),
+        eq(songGroups.organizationId, req.org.id),
+      )
+    )
+    .limit(1);
+
+  return !!manager;
+}
+
+async function requireManagedSongGroup(req, groupId) {
+  if (!(await userCanManageSongGroup(req, groupId))) {
+    throw createError(403, "You do not have permission to manage this song group");
+  }
+
+  const group = await loadSongGroupForOrganization(groupId, req.org.id);
+  if (!group) {
+    throw createError(404, "Song group not found");
+  }
+
+  return group;
+}
+
+async function loadSharedSongIdsForUser(userId, organizationId) {
+  if (!userId || typeof db.select !== "function") {
+    return [];
+  }
+
+  const directRows = await db
+    .select({ songId: songUserShares.songId })
+    .from(songUserShares)
+    .where(eq(songUserShares.sharedWithUserId, userId));
+
+  const teamRows = await db
+    .select({ songId: songTeamShares.songId })
+    .from(songTeamShares)
+    .innerJoin(shareTeamMembers, eq(songTeamShares.teamId, shareTeamMembers.teamId))
+    .where(eq(shareTeamMembers.userId, userId));
+
+  const organizationRows = organizationId
+    ? await db
+        .select({ songId: songOrganizationShares.songId })
+        .from(songOrganizationShares)
+        .where(eq(songOrganizationShares.sharedWithOrganizationId, organizationId))
+    : [];
+
+  return [...new Set([...directRows, ...teamRows, ...organizationRows].map((row) => row.songId))];
+}
+
+async function loadSongById(songId) {
+  const [song] = await db
+    .select()
+    .from(songs)
+    .where(eq(songs.id, songId))
+    .limit(1);
+
+  return song || null;
+}
+
+async function loadSharedSongForUser(songId, userId, organizationId) {
+  if (!userId || typeof db.select !== "function") {
+    return null;
+  }
+
+  const directRows = await db
+    .select({
+      id: songs.id,
+      title: songs.title,
+      aka: songs.aka,
+      category: songs.category,
+      key: songs.key,
+      tempo: songs.tempo,
+      artist: songs.artist,
+      shout: songs.shout,
+      year: songs.year,
+      tags: songs.tags,
+      content: songs.content,
+      isDraft: songs.isDraft,
+      defaultVariationId: songs.defaultVariationId,
+      organizationId: songs.organizationId,
+      createdBy: songs.createdBy,
+      createdAt: songs.createdAt,
+      updatedAt: songs.updatedAt,
+    })
+    .from(songs)
+    .innerJoin(songUserShares, eq(songUserShares.songId, songs.id))
+    .where(and(eq(songs.id, songId), eq(songUserShares.sharedWithUserId, userId)))
+    .limit(1);
+
+  if (directRows[0]) {
+    return directRows[0];
+  }
+
+  const [teamSong] = await db
+    .select({
+      id: songs.id,
+      title: songs.title,
+      aka: songs.aka,
+      category: songs.category,
+      key: songs.key,
+      tempo: songs.tempo,
+      artist: songs.artist,
+      shout: songs.shout,
+      year: songs.year,
+      tags: songs.tags,
+      content: songs.content,
+      isDraft: songs.isDraft,
+      defaultVariationId: songs.defaultVariationId,
+      organizationId: songs.organizationId,
+      createdBy: songs.createdBy,
+      createdAt: songs.createdAt,
+      updatedAt: songs.updatedAt,
+    })
+    .from(songs)
+    .innerJoin(songTeamShares, eq(songTeamShares.songId, songs.id))
+    .innerJoin(shareTeamMembers, eq(songTeamShares.teamId, shareTeamMembers.teamId))
+    .where(and(eq(songs.id, songId), eq(shareTeamMembers.userId, userId)))
+    .limit(1);
+
+  if (teamSong) {
+    return teamSong;
+  }
+
+  if (!organizationId) {
+    return null;
+  }
+
+  const [organizationSong] = await db
+    .select({
+      id: songs.id,
+      title: songs.title,
+      aka: songs.aka,
+      category: songs.category,
+      key: songs.key,
+      tempo: songs.tempo,
+      artist: songs.artist,
+      shout: songs.shout,
+      year: songs.year,
+      tags: songs.tags,
+      content: songs.content,
+      isDraft: songs.isDraft,
+      defaultVariationId: songs.defaultVariationId,
+      organizationId: songs.organizationId,
+      createdBy: songs.createdBy,
+      createdAt: songs.createdAt,
+      updatedAt: songs.updatedAt,
+    })
+    .from(songs)
+    .innerJoin(songOrganizationShares, eq(songOrganizationShares.songId, songs.id))
+    .where(and(eq(songs.id, songId), eq(songOrganizationShares.sharedWithOrganizationId, organizationId)))
+    .limit(1);
+
+  return organizationSong || null;
+}
+
 function sanitizeFilename(value) {
   return value.replace(/[^a-zA-Z0-9._ -]/g, "").trim() || "untitled";
 }
@@ -149,6 +337,7 @@ songRoutes.get(
     const {
       q,
       groupId,
+      scope,
       category,
       tag,
       key: songKey,
@@ -159,6 +348,7 @@ songRoutes.get(
       offset = "0",
     } = req.query;
 
+    const normalizedScope = scope === "shared" ? "shared" : "organization";
     const normalizedSort = typeof sort === "string" ? sort : "lastEdited";
     const usageAggregate = normalizedSort === "mostUsed"
       ? db
@@ -181,8 +371,16 @@ songRoutes.get(
 
     const conditions = [];
 
-    // Scope to organization if context available
-    if (req.org) {
+    if (normalizedScope === "shared") {
+      const sharedSongIds = await loadSharedSongIdsForUser(req.user?.id, req.org?.id);
+      if (sharedSongIds.length === 0) {
+        res.json({ songs: [], total: 0 });
+        return;
+      }
+
+      conditions.push(inArray(songs.id, sharedSongIds));
+    } else if (req.org) {
+      // Scope to organization if context available
       conditions.push(eq(songs.organizationId, req.org.id));
     }
 
@@ -220,11 +418,21 @@ songRoutes.get(
         isDraft: songs.isDraft,
         createdAt: songs.createdAt,
         updatedAt: songs.updatedAt,
+        ...(normalizedScope === "shared"
+          ? {
+              sharedWithMe: sql`true`.as("shared_with_me"),
+              organizationName: organizations.name,
+            }
+          : {}),
       })
       .from(songs);
 
     if (normalizedSort === "mostUsed" && usageAggregate) {
       query = query.leftJoin(usageAggregate, eq(songs.id, usageAggregate.songId));
+    }
+
+    if (normalizedScope === "shared") {
+      query = query.leftJoin(organizations, eq(songs.organizationId, organizations.id));
     }
 
     if (q) {
@@ -364,7 +572,61 @@ songRoutes.get(
       .where(eq(songGroups.organizationId, req.org.id))
       .orderBy(asc(songGroups.name));
 
-    res.json({ groups });
+    const groupIds = groups.map((group) => group.id);
+    const managerRows = groupIds.length === 0
+      ? []
+      : await db
+          .select({
+            groupId: songGroupManagers.groupId,
+            userId: songGroupManagers.userId,
+            displayName: users.displayName,
+            email: users.email,
+          })
+          .from(songGroupManagers)
+          .innerJoin(users, eq(songGroupManagers.userId, users.id))
+          .where(inArray(songGroupManagers.groupId, groupIds));
+
+    const manageableGroupIds = hasBroadSongGroupAccess(req)
+      ? new Set(groupIds)
+      : new Set(
+          groupIds.length === 0 || typeof db.select !== "function"
+            ? []
+            : (await db
+                .select({ groupId: songGroupManagers.groupId })
+                .from(songGroupManagers)
+                .innerJoin(songGroups, eq(songGroupManagers.groupId, songGroups.id))
+                .where(
+                  and(
+                    eq(songGroupManagers.userId, req.user.id),
+                    eq(songGroups.organizationId, req.org.id),
+                    inArray(songGroupManagers.groupId, groupIds),
+                  )
+                )).map((row) => row.groupId)
+        );
+
+    const managersByGroupId = new Map();
+    for (const row of managerRows) {
+      const manager = {
+        userId: row.userId,
+        name: row.displayName || row.email,
+      };
+      const existing = managersByGroupId.get(row.groupId) || [];
+      existing.push(manager);
+      managersByGroupId.set(row.groupId, existing);
+    }
+
+    res.json({
+      groups: groups.map((group) => {
+        const managers = managersByGroupId.get(group.id) || [];
+        return {
+          ...group,
+          managers,
+          managerUserIds: managers.map((manager) => manager.userId),
+          managerNames: managers.map((manager) => manager.name),
+          canManage: manageableGroupIds.has(group.id),
+        };
+      }),
+    });
   })
 );
 
@@ -410,22 +672,13 @@ songRoutes.put(
   auth,
   orgContext,
   requireOrg,
-  requireOrgRole("admin", "musician"),
   asyncHandler(async (req, res) => {
     const name = String(req.body?.name || "").trim();
     if (!name) {
       throw createError(400, "Group name is required");
     }
 
-    const [existing] = await db
-      .select({ id: songGroups.id, name: songGroups.name })
-      .from(songGroups)
-      .where(and(eq(songGroups.id, req.params.groupId), eq(songGroups.organizationId, req.org.id)))
-      .limit(1);
-
-    if (!existing) {
-      throw createError(404, "Song group not found");
-    }
+    await requireManagedSongGroup(req, req.params.groupId);
 
     const [duplicate] = await db
       .select({ id: songGroups.id })
@@ -456,20 +709,75 @@ songRoutes.delete(
   auth,
   orgContext,
   requireOrg,
-  requireOrgRole("admin", "musician"),
   asyncHandler(async (req, res) => {
-    const [existing] = await db
-      .select({ id: songGroups.id })
-      .from(songGroups)
-      .where(and(eq(songGroups.id, req.params.groupId), eq(songGroups.organizationId, req.org.id)))
-      .limit(1);
-
-    if (!existing) {
-      throw createError(404, "Song group not found");
-    }
+    await requireManagedSongGroup(req, req.params.groupId);
 
     await db.delete(songGroups).where(eq(songGroups.id, req.params.groupId));
     res.json({ message: "Song group deleted" });
+  })
+);
+
+// ── PUT /api/songs/groups/:groupId/managers — delegate management ──
+songRoutes.put(
+  "/groups/:groupId/managers",
+  auth,
+  orgContext,
+  requireOrg,
+  requireOrgRole("admin"),
+  asyncHandler(async (req, res) => {
+    const group = await loadSongGroupForOrganization(req.params.groupId, req.org.id);
+    if (!group) {
+      throw createError(404, "Song group not found");
+    }
+
+    const requestedUserIds = Array.isArray(req.body?.userIds)
+      ? [...new Set(req.body.userIds.map((value) => String(value).trim()).filter(Boolean))]
+      : [];
+
+    const validMembers = requestedUserIds.length === 0
+      ? []
+      : await db
+          .select({ userId: organizationMembers.userId })
+          .from(organizationMembers)
+          .where(
+            and(
+              eq(organizationMembers.organizationId, req.org.id),
+              inArray(organizationMembers.userId, requestedUserIds),
+            )
+          );
+
+    const validUserIds = validMembers.map((member) => member.userId);
+    if (validUserIds.length !== requestedUserIds.length) {
+      throw createError(400, "All delegated managers must belong to the active organization");
+    }
+
+    await db.delete(songGroupManagers).where(eq(songGroupManagers.groupId, req.params.groupId));
+
+    if (validUserIds.length > 0) {
+      await db.insert(songGroupManagers).values(
+        validUserIds.map((userId) => ({
+          groupId: req.params.groupId,
+          userId,
+        }))
+      );
+    }
+
+    const managers = validUserIds.length === 0
+      ? []
+      : await db
+          .select({
+            userId: users.id,
+            name: users.displayName,
+            email: users.email,
+          })
+          .from(users)
+          .where(inArray(users.id, validUserIds));
+
+    res.json({
+      groupId: req.params.groupId,
+      managerUserIds: validUserIds,
+      managerNames: managers.map((manager) => manager.name || manager.email),
+    });
   })
 );
 
@@ -479,7 +787,6 @@ songRoutes.post(
   auth,
   orgContext,
   requireOrg,
-  requireOrgRole("admin", "musician"),
   asyncHandler(async (req, res) => {
     const rawSongIds = Array.isArray(req.body?.songIds) ? req.body.songIds : [];
     const songIds = [...new Set(rawSongIds.map((value) => String(value).trim()).filter(Boolean))];
@@ -487,15 +794,7 @@ songRoutes.post(
       throw createError(400, "At least one song id is required");
     }
 
-    const [group] = await db
-      .select({ id: songGroups.id })
-      .from(songGroups)
-      .where(and(eq(songGroups.id, req.params.groupId), eq(songGroups.organizationId, req.org.id)))
-      .limit(1);
-
-    if (!group) {
-      throw createError(404, "Song group not found");
-    }
+    await requireManagedSongGroup(req, req.params.groupId);
 
     const validSongs = await db
       .select({ id: songs.id })
@@ -537,17 +836,8 @@ songRoutes.delete(
   auth,
   orgContext,
   requireOrg,
-  requireOrgRole("admin", "musician"),
   asyncHandler(async (req, res) => {
-    const [group] = await db
-      .select({ id: songGroups.id })
-      .from(songGroups)
-      .where(and(eq(songGroups.id, req.params.groupId), eq(songGroups.organizationId, req.org.id)))
-      .limit(1);
-
-    if (!group) {
-      throw createError(404, "Song group not found");
-    }
+    await requireManagedSongGroup(req, req.params.groupId);
 
     await db
       .delete(songGroupSongs)
@@ -688,12 +978,25 @@ songRoutes.get(
 songRoutes.get(
   "/:id",
   auth,
+  orgContext,
   asyncHandler(async (req, res) => {
-    const [song] = await db
-      .select()
-      .from(songs)
-      .where(eq(songs.id, req.params.id))
-      .limit(1);
+    let song = null;
+
+    if (req.user?.role === "owner") {
+      song = await loadSongById(req.params.id);
+    } else if (req.org?.id) {
+      const [orgSong] = await db
+        .select()
+        .from(songs)
+        .where(and(eq(songs.id, req.params.id), eq(songs.organizationId, req.org.id)))
+        .limit(1);
+
+      song = orgSong || null;
+    }
+
+    if (!song) {
+      song = await loadSharedSongForUser(req.params.id, req.user?.id, req.org?.id);
+    }
 
     if (!song) {
       throw createError(404, "Song not found");

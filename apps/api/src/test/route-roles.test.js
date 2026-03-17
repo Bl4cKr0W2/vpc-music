@@ -99,10 +99,20 @@ const writeEndpoints = [
   { method: "post",   path: "/api/songs/any-id/share",          body: {} },
   { method: "delete", path: "/api/songs/any-id/shares/any-tid", body: null },
   { method: "patch",  path: "/api/songs/any-id/shares/any-tid", body: { label: "L" } },
+  { method: "post",   path: "/api/songs/any-id/direct-shares",  body: { email: "shared@test.com" } },
+  { method: "delete", path: "/api/songs/any-id/direct-shares/any-dsid", body: null },
+  { method: "post",   path: "/api/share-teams", body: { name: "Band", userIds: ["user-2"] } },
+  { method: "delete", path: "/api/share-teams/any-team-id", body: null },
+  { method: "post",   path: "/api/songs/any-id/team-shares", body: { teamId: "team-1" } },
+  { method: "delete", path: "/api/songs/any-id/team-shares/any-tsid", body: null },
   // Sticky notes
   { method: "post",   path: "/api/songs/any-id/notes",          body: { text: "n" } },
   { method: "put",    path: "/api/songs/any-id/notes/any-nid",  body: { text: "n" } },
   { method: "delete", path: "/api/songs/any-id/notes/any-nid",  body: null },
+];
+
+const adminOnlyEndpoints = [
+  { method: "put", path: "/api/songs/groups/any-gid/managers", body: { userIds: ["user-2"] } },
 ];
 
 // ── Tests ────────────────────────────────────────────────────
@@ -114,7 +124,18 @@ describe("Role-matrix — observer blocked on write endpoints", () => {
       if (body) req.send(body);
       const res = await req;
       expect(res.status).toBe(403);
-      expect(res.body.error.message).toContain("Requires one of");
+      expect(res.body.error.message).toMatch(/Requires one of|do not have permission to manage this song group/i);
+    });
+  }
+});
+
+describe("Role-matrix — observer blocked on admin-only endpoints", () => {
+  for (const { method, path, body } of adminOnlyEndpoints) {
+    it(`${method.toUpperCase()} ${path} → 403 for observer`, async () => {
+      const req = authed(method, path, { orgRole: "observer" });
+      if (body) req.send(body);
+      const res = await req;
+      expect(res.status).toBe(403);
     });
   }
 });
@@ -131,8 +152,30 @@ describe("Role-matrix — musician allowed on write endpoints", () => {
   }
 });
 
+describe("Role-matrix — musician blocked on admin-only endpoints", () => {
+  for (const { method, path, body } of adminOnlyEndpoints) {
+    it(`${method.toUpperCase()} ${path} → 403 for musician`, async () => {
+      const req = authed(method, path, { orgRole: "musician" });
+      if (body) req.send(body);
+      const res = await req;
+      expect(res.status).toBe(403);
+    });
+  }
+});
+
 describe("Role-matrix — admin allowed on write endpoints", () => {
   for (const { method, path, body } of writeEndpoints) {
+    it(`${method.toUpperCase()} ${path} → not 401/403 for admin`, async () => {
+      const req = authed(method, path, { orgRole: "admin" });
+      if (body) req.send(body);
+      const res = await req;
+      expect([401, 403]).not.toContain(res.status);
+    });
+  }
+});
+
+describe("Role-matrix — admin allowed on admin-only endpoints", () => {
+  for (const { method, path, body } of adminOnlyEndpoints) {
     it(`${method.toUpperCase()} ${path} → not 401/403 for admin`, async () => {
       const req = authed(method, path, { orgRole: "admin" });
       if (body) req.send(body);
@@ -149,6 +192,17 @@ describe("Role-matrix — global owner bypasses role check", () => {
       if (body) req.send(body);
       const res = await req;
       // Owner should bypass requireOrgRole even with observer org role
+      expect([401, 403]).not.toContain(res.status);
+    });
+  }
+});
+
+describe("Role-matrix — global owner allowed on admin-only endpoints", () => {
+  for (const { method, path, body } of adminOnlyEndpoints) {
+    it(`${method.toUpperCase()} ${path} → not 401/403 for owner`, async () => {
+      const req = authed(method, path, { globalRole: "owner", orgRole: "observer" });
+      if (body) req.send(body);
+      const res = await req;
       expect([401, 403]).not.toContain(res.status);
     });
   }

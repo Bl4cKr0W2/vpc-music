@@ -2,6 +2,7 @@
 import { pgTable, text, timestamp, uuid, uniqueIndex } from "drizzle-orm/pg-core";
 import { organizations } from "./organizations.js";
 import { songs } from "./songs.js";
+import { users } from "./users.js";
 
 export const songGroups = pgTable(
   "song_groups",
@@ -34,5 +35,22 @@ export const songGroupSongs = pgTable(
   },
   (table) => [
     uniqueIndex("song_group_song_unique").on(table.groupId, table.songId),
+  ]
+);
+
+export const songGroupManagers = pgTable(
+  "song_group_managers",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    groupId: uuid("group_id")
+      .notNull()
+      .references(() => songGroups.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("song_group_manager_unique").on(table.groupId, table.userId),
   ]
 );

@@ -63,6 +63,8 @@ export function EditorContextMenu({ open, position, groups, onClose }: EditorCon
       className="fixed z-[200] min-w-[200px] rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--popover))] py-1 shadow-xl"
       style={{ left: position.x, top: position.y }}
       data-testid="editor-context-menu"
+      role="menu"
+      aria-label="Editor context menu"
     >
       {groups.map((group, gi) => (
         <div key={group.label}>
@@ -82,6 +84,7 @@ export function EditorContextMenu({ open, position, groups, onClose }: EditorCon
               }}
               className="flex w-full items-center justify-between px-3 py-1.5 text-left text-sm text-[hsl(var(--popover-foreground))] hover:bg-[hsl(var(--accent))] hover:text-[hsl(var(--accent-foreground))] transition-colors"
               data-testid={`context-action-${item.label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
+              role="menuitem"
             >
               <span>{item.label}</span>
               {item.shortcut && (

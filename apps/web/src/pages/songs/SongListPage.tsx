@@ -1,10 +1,11 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { songsApi, type Song, type SongGroup } from "@/lib/api-client";
+import { adminApi, shareApi, songsApi, type OrgUser, type OrganizationShareTarget, type Song, type SongGroup } from "@/lib/api-client";
+import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { TempoIndicator } from "@/components/songs/TempoIndicator";
 import { useAuth } from "@/contexts/AuthContext";
 import { ALL_KEYS } from "@vpc-music/shared";
-import { Search, Plus, Music, X, Download, ChevronDown, FolderPlus, Pencil, Trash2 } from "lucide-react";
+import { Search, Plus, Music, X, Download, ChevronDown, FolderPlus, Pencil, Share2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 const PAGE_SIZE = 50;
@@ -12,13 +13,18 @@ const PAGE_SIZE = 50;
 export function SongListPage() {
   const { user, activeOrg } = useAuth();
   const canEdit = user?.role === "owner" || activeOrg?.role === "admin" || activeOrg?.role === "musician";
+  const canDelegateGroupManagement = user?.role === "owner" || activeOrg?.role === "admin";
+  const canBatchShareToOrganizations = user?.role === "owner" || activeOrg?.role === "admin";
   const [songs, setSongs] = useState<Song[]>([]);
   const [availableGroups, setAvailableGroups] = useState<SongGroup[]>([]);
+  const [shareTargets, setShareTargets] = useState<OrganizationShareTarget[]>([]);
+  const [orgMembers, setOrgMembers] = useState<OrgUser[]>([]);
   const [availableCategories, setAvailableCategories] = useState<string[]>([]);
   const [availableTags, setAvailableTags] = useState<string[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState("");
+  const [libraryScope, setLibraryScope] = useState<"organization" | "shared">("organization");
   const [groupFilter, setGroupFilter] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("");
   const [keyFilter, setKeyFilter] = useState("");
@@ -31,25 +37,40 @@ export function SongListPage() {
   const [selectedSongIds, setSelectedSongIds] = useState<string[]>([]);
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [showGroupsModal, setShowGroupsModal] = useState(false);
+  const [showOrgShareModal, setShowOrgShareModal] = useState(false);
   const [newGroupName, setNewGroupName] = useState("");
   const [creatingGroup, setCreatingGroup] = useState(false);
   const [groupActionId, setGroupActionId] = useState<string | null>(null);
   const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
   const [editingGroupName, setEditingGroupName] = useState("");
+  const [managerSelections, setManagerSelections] = useState<Record<string, string[]>>({});
+  const [organizationShareCounts, setOrganizationShareCounts] = useState<Record<string, number>>({});
+  const [organizationShareActions, setOrganizationShareActions] = useState<Record<string, "share" | "unshare">>({});
+  const [loadingShareTargets, setLoadingShareTargets] = useState(false);
+  const [sharingToOrganizations, setSharingToOrganizations] = useState(false);
+  const [pendingDeleteGroup, setPendingDeleteGroup] = useState<SongGroup | null>(null);
 
   const parsedTempoMin = /^\d+$/.test(tempoMin) ? Number.parseInt(tempoMin, 10) : undefined;
   const parsedTempoMax = /^\d+$/.test(tempoMax) ? Number.parseInt(tempoMax, 10) : undefined;
+  const isSharedScope = libraryScope === "shared";
   const hasActiveFilters = Boolean(debouncedQ || groupFilter || categoryFilter || keyFilter || tagFilter || tempoMin || tempoMax);
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const pageStart = total === 0 ? 0 : page * PAGE_SIZE + 1;
   const pageEnd = total === 0 ? 0 : Math.min(total, (page + 1) * PAGE_SIZE);
+  const canManageAnyGroup = canEdit || availableGroups.some((group) => group.canManage);
 
   const loadGroups = async () => {
     try {
       const res = await songsApi.getGroups();
       setAvailableGroups(res.groups);
+      setManagerSelections(
+        Object.fromEntries(
+          res.groups.map((group) => [group.id, group.managerUserIds ?? []])
+        )
+      );
     } catch {
       setAvailableGroups([]);
+      setManagerSelections({});
     }
   };
 
@@ -62,18 +83,29 @@ export function SongListPage() {
   useEffect(() => {
     let cancelled = false;
 
-    songsApi
-      .getGroups()
-      .then((res) => {
-        if (!cancelled) {
-          setAvailableGroups(res.groups);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setAvailableGroups([]);
-        }
-      });
+    loadGroups().catch(() => {
+      if (!cancelled) {
+        setAvailableGroups([]);
+        setManagerSelections({});
+      }
+    });
+
+    if (canDelegateGroupManagement) {
+      adminApi
+        .listUsers()
+        .then((res) => {
+          if (!cancelled) {
+            setOrgMembers(res.users);
+          }
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setOrgMembers([]);
+          }
+        });
+    } else if (!cancelled) {
+      setOrgMembers([]);
+    }
 
     songsApi
       .getCategories()
@@ -104,7 +136,7 @@ export function SongListPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [canDelegateGroupManagement]);
 
   useEffect(() => {
     let cancelled = false;
@@ -112,6 +144,7 @@ export function SongListPage() {
     songsApi
       .list({
         q: debouncedQ || undefined,
+        scope: isSharedScope ? "shared" : undefined,
         groupId: groupFilter || undefined,
         category: categoryFilter || undefined,
         key: keyFilter || undefined,
@@ -135,15 +168,62 @@ export function SongListPage() {
     return () => {
       cancelled = true;
     };
-  }, [debouncedQ, groupFilter, categoryFilter, keyFilter, tagFilter, parsedTempoMin, parsedTempoMax, sort, page]);
+  }, [debouncedQ, libraryScope, groupFilter, categoryFilter, keyFilter, tagFilter, parsedTempoMin, parsedTempoMax, sort, page]);
 
   useEffect(() => {
     setPage(0);
-  }, [debouncedQ, groupFilter, categoryFilter, keyFilter, tagFilter, parsedTempoMin, parsedTempoMax, sort]);
+  }, [debouncedQ, libraryScope, groupFilter, categoryFilter, keyFilter, tagFilter, parsedTempoMin, parsedTempoMax, sort]);
+
+  useEffect(() => {
+    if (isSharedScope && groupFilter) {
+      setGroupFilter("");
+    }
+  }, [isSharedScope, groupFilter]);
 
   useEffect(() => {
     setSelectedSongIds((previous) => previous.filter((songId) => songs.some((song) => song.id === songId)));
   }, [songs]);
+
+  useEffect(() => {
+    if (!showOrgShareModal) {
+      return;
+    }
+
+    let cancelled = false;
+    setLoadingShareTargets(true);
+    Promise.all([
+      shareApi.listOrganizationTargets(),
+      shareApi.listBatchOrganizationShares(selectedSongIds),
+    ])
+      .then(([targetsRes, sharesRes]) => {
+        if (!cancelled) {
+          setShareTargets(targetsRes.organizations);
+
+          const counts = sharesRes.shares.reduce<Record<string, number>>((accumulator, share) => {
+            accumulator[share.organizationId] = (accumulator[share.organizationId] ?? 0) + 1;
+            return accumulator;
+          }, {});
+
+          setOrganizationShareCounts(counts);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setShareTargets([]);
+          setOrganizationShareCounts({});
+          toast.error("Failed to load organizations");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoadingShareTargets(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [showOrgShareModal, selectedSongIds]);
 
   const visibleSongIds = songs.map((song) => song.id);
   const allVisibleSelected = songs.length > 0 && visibleSongIds.every((songId) => selectedSongIds.includes(songId));
@@ -204,6 +284,78 @@ export function SongListPage() {
     }
 
     setShowExportMenu(false);
+  };
+
+  const closeOrgShareModal = () => {
+    if (sharingToOrganizations) {
+      return;
+    }
+
+    setShowOrgShareModal(false);
+    setOrganizationShareActions({});
+    setOrganizationShareCounts({});
+  };
+
+  const setOrganizationShareAction = (organizationId: string, action: "share" | "unshare") => {
+    setOrganizationShareActions((previous) => ({
+      ...previous,
+      [organizationId]: action,
+    }));
+  };
+
+  const clearOrganizationShareAction = (organizationId: string) => {
+    setOrganizationShareActions((previous) => {
+      const next = { ...previous };
+      delete next[organizationId];
+      return next;
+    });
+  };
+
+  const handleBatchShareToOrganizations = async () => {
+    if (selectedSongIds.length === 0) {
+      toast.error("Select at least one song first");
+      return;
+    }
+
+    const addOrganizationIds = Object.entries(organizationShareActions)
+      .filter(([, action]) => action === "share")
+      .map(([organizationId]) => organizationId);
+    const removeOrganizationIds = Object.entries(organizationShareActions)
+      .filter(([, action]) => action === "unshare")
+      .map(([organizationId]) => organizationId);
+
+    if (addOrganizationIds.length === 0 && removeOrganizationIds.length === 0) {
+      toast.error("Choose at least one share change");
+      return;
+    }
+
+    setSharingToOrganizations(true);
+    try {
+      const result = await shareApi.updateBatchOrganizationShares({
+        songIds: selectedSongIds,
+        addOrganizationIds,
+        removeOrganizationIds,
+      });
+
+      if (result.createdShares === 0 && (result.removedShares ?? 0) === 0) {
+        toast.success("No organization share changes were needed");
+      } else if (result.createdShares > 0 && (result.removedShares ?? 0) > 0) {
+        toast.success(`Updated organization sharing (${result.createdShares} added, ${result.removedShares} removed)`);
+      } else if ((result.removedShares ?? 0) > 0) {
+        toast.success(`Removed ${result.removedShares} organization share${result.removedShares === 1 ? "" : "s"}`);
+      } else if (result.skippedShares > 0) {
+        toast.success(`Created ${result.createdShares} new organization share${result.createdShares === 1 ? "" : "s"}`);
+      } else {
+        toast.success(`Shared ${selectedSongIds.length} song${selectedSongIds.length === 1 ? "" : "s"} with more organizations`);
+      }
+
+      setOrganizationShareActions({});
+      setShowOrgShareModal(false);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to update song sharing");
+    } finally {
+      setSharingToOrganizations(false);
+    }
   };
 
   const handleCreateGroup = async () => {
@@ -272,21 +424,42 @@ export function SongListPage() {
     }
   };
 
-  const handleDeleteGroup = async (groupId: string) => {
-    if (!window.confirm("Delete this song group? Songs will remain in the library.")) {
+  const handleDeleteGroup = async () => {
+    if (!pendingDeleteGroup) {
       return;
     }
 
-    setGroupActionId(groupId);
+    setGroupActionId(pendingDeleteGroup.id);
     try {
-      await songsApi.deleteGroup(groupId);
-      if (groupFilter === groupId) {
+      await songsApi.deleteGroup(pendingDeleteGroup.id);
+      if (groupFilter === pendingDeleteGroup.id) {
         setGroupFilter("");
       }
       await loadGroups();
       toast.success("Group deleted");
+      setPendingDeleteGroup(null);
     } catch (err: any) {
       toast.error(err.message || "Failed to delete group");
+    } finally {
+      setGroupActionId(null);
+    }
+  };
+
+  const handleManagerSelectionChange = (groupId: string, values: string[]) => {
+    setManagerSelections((previous) => ({
+      ...previous,
+      [groupId]: values,
+    }));
+  };
+
+  const handleSaveGroupManagers = async (groupId: string) => {
+    setGroupActionId(groupId);
+    try {
+      await songsApi.updateGroupManagers(groupId, managerSelections[groupId] ?? []);
+      await loadGroups();
+      toast.success("Delegated managers updated");
+    } catch (err: any) {
+      toast.error(err.message || "Failed to update delegated managers");
     } finally {
       setGroupActionId(null);
     }
@@ -328,10 +501,20 @@ export function SongListPage() {
           )}
         </div>
         <select
+          aria-label="Song scope"
+          value={libraryScope}
+          onChange={(e) => setLibraryScope(e.target.value as "organization" | "shared")}
+          className="select w-auto"
+        >
+          <option value="organization">Current organization</option>
+          <option value="shared">Shared with me</option>
+        </select>
+        <select
           aria-label="Filter by group"
           value={groupFilter}
           onChange={(e) => setGroupFilter(e.target.value)}
           className="select w-auto"
+          disabled={isSharedScope}
         >
           <option value="">All groups</option>
           {availableGroups.map((group) => (
@@ -422,7 +605,9 @@ export function SongListPage() {
         <div className="card-empty">
           <Music className="mx-auto h-12 w-12 text-[hsl(var(--muted-foreground))]" />
           <p className="mt-3 text-sm text-[hsl(var(--muted-foreground))]">
-            {hasActiveFilters
+            {isSharedScope
+              ? "No shared songs yet."
+              : hasActiveFilters
               ? "No songs match your search."
               : "No songs yet. Import your library to get started."}
           </p>
@@ -455,13 +640,24 @@ export function SongListPage() {
                 Select all
               </label>
 
-              {canEdit && (
+              {canManageAnyGroup && (
                 <button
                   type="button"
                   onClick={() => setShowGroupsModal(true)}
                   className="btn-outline btn-sm"
                 >
                   <FolderPlus className="h-3.5 w-3.5" /> Groups
+                </button>
+              )}
+
+              {canBatchShareToOrganizations && !isSharedScope && (
+                <button
+                  type="button"
+                  onClick={() => setShowOrgShareModal(true)}
+                  className="btn-outline btn-sm disabled:cursor-not-allowed disabled:opacity-50"
+                  disabled={selectedSongIds.length === 0}
+                >
+                  <Share2 className="h-3.5 w-3.5" /> Share to Organizations{selectedSongIds.length > 0 ? ` (${selectedSongIds.length})` : ""}
                 </button>
               )}
 
@@ -524,7 +720,13 @@ export function SongListPage() {
                       {song.title}
                     </div>
                     <div className="mt-0.5 text-xs text-[hsl(var(--muted-foreground))]">
-                      {[song.artist, song.category ? `Category: ${song.category}` : null, song.aka ? `AKA: ${song.aka}` : null, song.tags].filter(Boolean).join(" · ")}
+                      {[
+                        song.artist,
+                        song.sharedWithMe && song.organizationName ? `Shared from: ${song.organizationName}` : null,
+                        song.category ? `Category: ${song.category}` : null,
+                        song.aka ? `AKA: ${song.aka}` : null,
+                        song.tags,
+                      ].filter(Boolean).join(" · ")}
                     </div>
                   </div>
                   <div className="ml-4 flex items-center gap-3 text-xs text-[hsl(var(--muted-foreground))] shrink-0">
@@ -635,6 +837,8 @@ export function SongListPage() {
                   {availableGroups.map((group) => {
                     const isEditing = editingGroupId === group.id;
                     const isBusy = groupActionId === group.id;
+                    const canManageGroup = canEdit || group.canManage;
+                    const delegatedManagers = group.managerNames ?? [];
 
                     return (
                       <div key={group.id} className="list-item gap-3">
@@ -673,11 +877,21 @@ export function SongListPage() {
                               <p className="text-xs text-[hsl(var(--muted-foreground))]">
                                 {group.songCount ?? 0} song{group.songCount === 1 ? "" : "s"}
                               </p>
+                              {delegatedManagers.length > 0 && (
+                                <p className="text-xs text-[hsl(var(--muted-foreground))]">
+                                  Delegated managers: {delegatedManagers.join(", ")}
+                                </p>
+                              )}
+                              {!canManageGroup && (
+                                <p className="text-xs text-[hsl(var(--muted-foreground))]">
+                                  Managed by delegated users or organization editors.
+                                </p>
+                              )}
                             </>
                           )}
                         </div>
 
-                        {!isEditing && (
+                        {!isEditing && canManageGroup && (
                           <div className="flex flex-wrap items-center gap-2">
                             {selectedSongIds.length > 0 && (
                               <button
@@ -702,13 +916,47 @@ export function SongListPage() {
                             </button>
                             <button
                               type="button"
-                              onClick={() => handleDeleteGroup(group.id)}
+                              onClick={() => setPendingDeleteGroup(group)}
                               disabled={isBusy}
                               className="btn-destructive btn-sm"
                               aria-label={`Delete ${group.name}`}
                             >
                               <Trash2 className="h-3.5 w-3.5" /> Delete
                             </button>
+                          </div>
+                        )}
+
+                        {canDelegateGroupManagement && !isEditing && (
+                          <div className="w-full space-y-2 border-t border-[hsl(var(--border))] pt-3">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <p className="text-xs font-medium text-[hsl(var(--foreground))]">
+                                Delegated group managers
+                              </p>
+                              <button
+                                type="button"
+                                onClick={() => handleSaveGroupManagers(group.id)}
+                                disabled={isBusy}
+                                className="btn-outline btn-sm"
+                              >
+                                Save Managers
+                              </button>
+                            </div>
+                            <p className="text-xs text-[hsl(var(--muted-foreground))]">
+                              Assign specific users who can manage this group even without broader song-edit access.
+                            </p>
+                            <select
+                              multiple
+                              aria-label={`Delegated managers for ${group.name}`}
+                              value={managerSelections[group.id] ?? []}
+                              onChange={(e) => handleManagerSelectionChange(group.id, Array.from(e.target.selectedOptions).map((option) => option.value))}
+                              className="select min-h-32 w-full"
+                            >
+                              {orgMembers.map((member) => (
+                                <option key={member.id} value={member.id}>
+                                  {(member.displayName || member.email)} — {member.orgRole}
+                                </option>
+                              ))}
+                            </select>
                           </div>
                         )}
                       </div>
@@ -720,6 +968,134 @@ export function SongListPage() {
           </div>
         </div>
       )}
+
+      {showOrgShareModal && (
+        <div className="modal-backdrop">
+          <div className="modal-content max-w-2xl space-y-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-lg font-brand text-[hsl(var(--foreground))]">Edit organization sharing</h3>
+                <p className="text-sm text-[hsl(var(--muted-foreground))]">
+                  Shared songs will appear in the recipient organization&apos;s Shared with me library.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closeOrgShareModal}
+                className="btn-outline btn-sm"
+                disabled={sharingToOrganizations}
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="card card-body space-y-3">
+              <p className="text-sm text-[hsl(var(--foreground))]">
+                {selectedSongIds.length} selected song{selectedSongIds.length === 1 ? "" : "s"}
+              </p>
+              <p className="text-xs text-[hsl(var(--muted-foreground))]">
+                Add or remove organization access for the selected songs.
+              </p>
+            </div>
+
+            {loadingShareTargets ? (
+              <div className="flex justify-center py-10">
+                <div className="spinner" />
+              </div>
+            ) : shareTargets.length === 0 ? (
+              <div className="card-empty py-10">
+                <p className="text-sm text-[hsl(var(--muted-foreground))]">No other organizations are available to receive shared songs yet.</p>
+              </div>
+            ) : (
+              <div className="list-container max-h-80 overflow-y-auto">
+                {shareTargets.map((organization) => {
+                  const sharedCount = organizationShareCounts[organization.id] ?? 0;
+                  const pendingAction = organizationShareActions[organization.id] ?? null;
+                  const statusLabel = pendingAction === "share"
+                    ? `Pending: share with all ${selectedSongIds.length} selected song${selectedSongIds.length === 1 ? "" : "s"}`
+                    : pendingAction === "unshare"
+                    ? "Pending: remove from all selected songs"
+                    : sharedCount === 0
+                    ? "Not currently shared"
+                    : sharedCount === selectedSongIds.length
+                    ? `Shared with all ${selectedSongIds.length} selected song${selectedSongIds.length === 1 ? "" : "s"}`
+                    : `Shared with ${sharedCount} of ${selectedSongIds.length} selected songs`;
+
+                  return (
+                    <div key={organization.id} className="list-item gap-3">
+                      <div className="min-w-0 flex-1">
+                        <p className="font-medium text-[hsl(var(--foreground))]">{organization.name}</p>
+                        <p className="text-xs text-[hsl(var(--muted-foreground))]">{statusLabel}</p>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setOrganizationShareAction(organization.id, "share")}
+                          className="btn-outline btn-sm"
+                          aria-label={`Share selected songs with ${organization.name}`}
+                        >
+                          Share selected
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setOrganizationShareAction(organization.id, "unshare")}
+                          className="btn-outline btn-sm"
+                          aria-label={`Remove selected songs from ${organization.name}`}
+                        >
+                          Unshare selected
+                        </button>
+                        {pendingAction && (
+                          <button
+                            type="button"
+                            onClick={() => clearOrganizationShareAction(organization.id)}
+                            className="btn-outline btn-sm"
+                            aria-label={`Clear pending changes for ${organization.name}`}
+                          >
+                            Reset
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            <div className="flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                onClick={closeOrgShareModal}
+                className="btn-outline btn-sm"
+                disabled={sharingToOrganizations}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleBatchShareToOrganizations}
+                className="btn-primary btn-sm"
+                disabled={sharingToOrganizations || loadingShareTargets || shareTargets.length === 0}
+              >
+                <Share2 className="h-3.5 w-3.5" /> {sharingToOrganizations ? "Saving..." : "Save share changes"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <ConfirmDialog
+        open={Boolean(pendingDeleteGroup)}
+        title={pendingDeleteGroup ? `Delete \"${pendingDeleteGroup.name}\"?` : "Delete song group?"}
+        description="Songs will remain in the library. Only the group will be removed."
+        confirmLabel="Delete group"
+        busy={groupActionId === pendingDeleteGroup?.id}
+        onClose={() => {
+          if (!groupActionId) {
+            setPendingDeleteGroup(null);
+          }
+        }}
+        onConfirm={handleDeleteGroup}
+      />
     </div>
   );
 }
