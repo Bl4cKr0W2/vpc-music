@@ -1,13 +1,14 @@
 import { Router } from "express";
-import { eq, ilike, or, and, desc, sql } from "drizzle-orm";
+import { eq, ilike, or, and, asc, desc, sql, inArray, gte, lte } from "drizzle-orm";
 import { db } from "../../db.js";
-import { songs, songVariations, songUsages, songEdits } from "../../schema/index.js";
+import { songs, songVariations, songUsages, songEdits, songGroups, songGroupSongs } from "../../schema/index.js";
 import { createError, asyncHandler } from "../../middlewares/errorHandler.js";
 import { auth } from "../../middlewares/auth.js";
-import { orgContext, requireOrg } from "../../middlewares/orgContext.js";
-import { chordProToOnSong, parseChordPro } from "@vpc-music/shared";
+import { orgContext, requireOrg, requireOrgRole } from "../../middlewares/orgContext.js";
+import { chordProToOnSong, chordProToPlainText, convertChrdToChordPro, onSongToChordPro, parseChordPro } from "@vpc-music/shared";
 import { env } from "../../config/env.js";
 import multer from "multer";
+import JSZip from "jszip";
 import { convertPdfToChordPro } from "./pdfToChordPro.js";
 
 export const songRoutes = Router();
@@ -25,18 +26,193 @@ const upload = multer({
   },
 });
 
+function parseImportedMetadata(chordProContent, fallbackTitle = "Untitled") {
+  const parsed = parseChordPro(chordProContent);
+  const title = parsed.directives.title || parsed.directives.t || fallbackTitle;
+  const artist = parsed.directives.artist || parsed.directives.a || null;
+  const key = parsed.directives.key || parsed.directives.k || null;
+  const tempoRaw = parsed.directives.tempo || null;
+  const tempo = tempoRaw && /^\d+$/.test(tempoRaw) ? Number(tempoRaw) : null;
+
+  return {
+    title,
+    artist,
+    key,
+    tempo,
+  };
+}
+
+function hasDirective(content, key) {
+  return new RegExp(`^\\{(?:${key}):\\s*.*?\\}$`, "im").test(content);
+}
+
+function buildExportContent(baseSong, variation) {
+  if (!variation) {
+    return {
+      title: baseSong.title,
+      content: baseSong.content,
+      key: baseSong.key,
+      artist: baseSong.artist,
+      tempo: baseSong.tempo,
+    };
+  }
+
+  const exportTitle = `${baseSong.title} - ${variation.name}`;
+  const key = variation.key || baseSong.key || null;
+  let content = variation.content || baseSong.content;
+  const prelude = [];
+
+  if (!hasDirective(content, "title|t")) prelude.push(`{title: ${exportTitle}}`);
+  if (baseSong.artist && !hasDirective(content, "artist|a")) prelude.push(`{artist: ${baseSong.artist}}`);
+  if (key && !hasDirective(content, "key|k")) prelude.push(`{key: ${key}}`);
+  if (baseSong.tempo && !hasDirective(content, "tempo")) prelude.push(`{tempo: ${baseSong.tempo}}`);
+
+  if (prelude.length > 0) {
+    content = `${prelude.join("\n")}\n\n${content}`;
+  }
+
+  return {
+    title: exportTitle,
+    content,
+    key,
+    artist: baseSong.artist,
+    tempo: baseSong.tempo,
+  };
+}
+
+function sanitizeFilename(value) {
+  return value.replace(/[^a-zA-Z0-9._ -]/g, "").trim() || "untitled";
+}
+
+function convertExportContent(target, format) {
+  if (format === "onsong") {
+    return {
+      extension: "onsong",
+      content: chordProToOnSong(target.content),
+    };
+  }
+
+  if (format === "text") {
+    return {
+      extension: "txt",
+      content: chordProToPlainText(target.content),
+    };
+  }
+
+  return {
+    extension: "cho",
+    content: target.content,
+  };
+}
+
+async function getSongExportTarget(songId, variationId) {
+  const [song] = await db
+    .select({
+      title: songs.title,
+      content: songs.content,
+      key: songs.key,
+      artist: songs.artist,
+      tempo: songs.tempo,
+    })
+    .from(songs)
+    .where(eq(songs.id, songId))
+    .limit(1);
+
+  if (!song) throw createError(404, "Song not found");
+
+  if (!variationId) {
+    return buildExportContent(song, null);
+  }
+
+  const [variation] = await db
+    .select({
+      id: songVariations.id,
+      name: songVariations.name,
+      content: songVariations.content,
+      key: songVariations.key,
+    })
+    .from(songVariations)
+    .where(and(eq(songVariations.id, variationId), eq(songVariations.songId, songId)))
+    .limit(1);
+
+  if (!variation) throw createError(404, "Variation not found");
+
+  return buildExportContent(song, variation);
+}
+
 // ── GET /api/songs — list all songs (with optional search) ───
 songRoutes.get(
   "/",
   auth,
   orgContext,
   asyncHandler(async (req, res) => {
-    const { q, tag, key: songKey, limit = "50", offset = "0" } = req.query;
+    const {
+      q,
+      groupId,
+      category,
+      tag,
+      key: songKey,
+      tempoMin,
+      tempoMax,
+      sort,
+      limit = "50",
+      offset = "0",
+    } = req.query;
+
+    const normalizedSort = typeof sort === "string" ? sort : "lastEdited";
+    const usageAggregate = normalizedSort === "mostUsed"
+      ? db
+          .select({
+            songId: songUsages.songId,
+            useCount: sql`count(*)::int`.as("use_count"),
+          })
+          .from(songUsages)
+          .where(req.org ? eq(songUsages.organizationId, req.org.id) : undefined)
+          .groupBy(songUsages.songId)
+          .as("usage_agg")
+      : null;
+
+    const parsedTempoMin = typeof tempoMin === "string" && /^\d+$/.test(tempoMin)
+      ? Number.parseInt(tempoMin, 10)
+      : null;
+    const parsedTempoMax = typeof tempoMax === "string" && /^\d+$/.test(tempoMax)
+      ? Number.parseInt(tempoMax, 10)
+      : null;
+
+    const conditions = [];
+
+    // Scope to organization if context available
+    if (req.org) {
+      conditions.push(eq(songs.organizationId, req.org.id));
+    }
+
+    if (typeof groupId === "string" && groupId.trim()) {
+      const groupConditions = [eq(songGroups.id, groupId.trim())];
+      if (req.org) {
+        groupConditions.push(eq(songGroups.organizationId, req.org.id));
+      }
+
+      const rows = await db
+        .select({ songId: songGroupSongs.songId })
+        .from(songGroupSongs)
+        .innerJoin(songGroups, eq(songGroupSongs.groupId, songGroups.id))
+        .where(and(...groupConditions));
+
+      const groupedSongIds = [...new Set(rows.map((row) => row.songId))];
+      if (groupedSongIds.length === 0) {
+        res.json({ songs: [], total: 0 });
+        return;
+      }
+
+      conditions.push(inArray(songs.id, groupedSongIds));
+    }
 
     let query = db
       .select({
         id: songs.id,
         title: songs.title,
+        aka: songs.aka,
+        category: songs.category,
         key: songs.key,
         tempo: songs.tempo,
         artist: songs.artist,
@@ -47,21 +223,23 @@ songRoutes.get(
       })
       .from(songs);
 
-    const conditions = [];
-
-    // Scope to organization if context available
-    if (req.org) {
-      conditions.push(eq(songs.organizationId, req.org.id));
+    if (normalizedSort === "mostUsed" && usageAggregate) {
+      query = query.leftJoin(usageAggregate, eq(songs.id, usageAggregate.songId));
     }
 
     if (q) {
       conditions.push(
         or(
           ilike(songs.title, `%${q}%`),
+          ilike(songs.aka, `%${q}%`),
+          ilike(songs.category, `%${q}%`),
           ilike(songs.artist, `%${q}%`),
           ilike(songs.tags, `%${q}%`)
         )
       );
+    }
+    if (category) {
+      conditions.push(eq(songs.category, category));
     }
     if (tag) {
       conditions.push(ilike(songs.tags, `%${tag}%`));
@@ -69,20 +247,40 @@ songRoutes.get(
     if (songKey) {
       conditions.push(eq(songs.key, songKey));
     }
+    if (parsedTempoMin !== null) {
+      conditions.push(gte(songs.tempo, parsedTempoMin));
+    }
+    if (parsedTempoMax !== null) {
+      conditions.push(lte(songs.tempo, parsedTempoMax));
+    }
 
     if (conditions.length > 0) {
       query = query.where(and(...conditions));
     }
 
+    const orderByClause = (() => {
+      switch (normalizedSort) {
+        case "title":
+          return [asc(songs.title), desc(songs.updatedAt)];
+        case "recentlyAdded":
+          return [desc(songs.createdAt), desc(songs.updatedAt)];
+        case "mostUsed":
+          return usageAggregate
+            ? [sql`coalesce(${usageAggregate.useCount}, 0) desc`, desc(songs.updatedAt)]
+            : [desc(songs.updatedAt)];
+        case "lastEdited":
+        default:
+          return [desc(songs.updatedAt)];
+      }
+    })();
+
     const result = await query
-      .orderBy(desc(songs.updatedAt))
+      .orderBy(...orderByClause)
       .limit(parseInt(limit, 10))
       .offset(parseInt(offset, 10));
 
-    // Get total count (scoped to org if available)
-    const countConditions = req.org ? [eq(songs.organizationId, req.org.id)] : [];
-    const [{ count }] = countConditions.length > 0
-      ? await db.select({ count: sql`count(*)::int` }).from(songs).where(and(...countConditions))
+    const [{ count }] = conditions.length > 0
+      ? await db.select({ count: sql`count(*)::int` }).from(songs).where(and(...conditions))
       : await db.select({ count: sql`count(*)::int` }).from(songs);
 
     res.json({ songs: result, total: count });
@@ -118,9 +316,378 @@ songRoutes.get(
   })
 );
 
+// ── GET /api/songs/categories — list all unique categories ───
+songRoutes.get(
+  "/categories",
+  auth,
+  orgContext,
+  asyncHandler(async (req, res) => {
+    const conditions = [];
+    if (req.org) {
+      conditions.push(eq(songs.organizationId, req.org.id));
+    }
+
+    const rows = conditions.length > 0
+      ? await db.select({ category: songs.category }).from(songs).where(and(...conditions))
+      : await db.select({ category: songs.category }).from(songs);
+
+    const categorySet = new Set();
+    for (const row of rows) {
+      const trimmed = String(row.category || "").trim();
+      if (trimmed) categorySet.add(trimmed);
+    }
+
+    res.json({ categories: [...categorySet].sort((a, b) => a.localeCompare(b)) });
+  })
+);
+
+// ── GET /api/songs/groups — list reusable song groups ────────
+songRoutes.get(
+  "/groups",
+  auth,
+  orgContext,
+  asyncHandler(async (req, res) => {
+    if (!req.org) {
+      res.json({ groups: [] });
+      return;
+    }
+
+    const groups = await db
+      .select({
+        id: songGroups.id,
+        name: songGroups.name,
+        createdAt: songGroups.createdAt,
+        updatedAt: songGroups.updatedAt,
+        songCount: sql`(SELECT count(*) FROM song_group_songs WHERE song_group_songs.group_id = ${songGroups.id})::int`,
+      })
+      .from(songGroups)
+      .where(eq(songGroups.organizationId, req.org.id))
+      .orderBy(asc(songGroups.name));
+
+    res.json({ groups });
+  })
+);
+
+// ── POST /api/songs/groups — create a reusable song group ────
+songRoutes.post(
+  "/groups",
+  auth,
+  orgContext,
+  requireOrg,
+  requireOrgRole("admin", "musician"),
+  asyncHandler(async (req, res) => {
+    const name = String(req.body?.name || "").trim();
+    if (!name) {
+      throw createError(400, "Group name is required");
+    }
+
+    const [existing] = await db
+      .select({ id: songGroups.id })
+      .from(songGroups)
+      .where(and(eq(songGroups.organizationId, req.org.id), eq(songGroups.name, name)))
+      .limit(1);
+
+    if (existing) {
+      throw createError(400, "A song group with that name already exists");
+    }
+
+    const [group] = await db
+      .insert(songGroups)
+      .values({
+        name,
+        organizationId: req.org.id,
+        createdBy: req.user.id,
+      })
+      .returning();
+
+    res.status(201).json({ group: { ...group, songCount: 0 } });
+  })
+);
+
+// ── PUT /api/songs/groups/:groupId — rename a song group ─────
+songRoutes.put(
+  "/groups/:groupId",
+  auth,
+  orgContext,
+  requireOrg,
+  requireOrgRole("admin", "musician"),
+  asyncHandler(async (req, res) => {
+    const name = String(req.body?.name || "").trim();
+    if (!name) {
+      throw createError(400, "Group name is required");
+    }
+
+    const [existing] = await db
+      .select({ id: songGroups.id, name: songGroups.name })
+      .from(songGroups)
+      .where(and(eq(songGroups.id, req.params.groupId), eq(songGroups.organizationId, req.org.id)))
+      .limit(1);
+
+    if (!existing) {
+      throw createError(404, "Song group not found");
+    }
+
+    const [duplicate] = await db
+      .select({ id: songGroups.id })
+      .from(songGroups)
+      .where(and(eq(songGroups.organizationId, req.org.id), eq(songGroups.name, name)))
+      .limit(1);
+
+    if (duplicate && duplicate.id !== req.params.groupId) {
+      throw createError(400, "A song group with that name already exists");
+    }
+
+    const [group] = await db
+      .update(songGroups)
+      .set({
+        name,
+        updatedAt: new Date(),
+      })
+      .where(eq(songGroups.id, req.params.groupId))
+      .returning();
+
+    res.json({ group });
+  })
+);
+
+// ── DELETE /api/songs/groups/:groupId — remove a group ───────
+songRoutes.delete(
+  "/groups/:groupId",
+  auth,
+  orgContext,
+  requireOrg,
+  requireOrgRole("admin", "musician"),
+  asyncHandler(async (req, res) => {
+    const [existing] = await db
+      .select({ id: songGroups.id })
+      .from(songGroups)
+      .where(and(eq(songGroups.id, req.params.groupId), eq(songGroups.organizationId, req.org.id)))
+      .limit(1);
+
+    if (!existing) {
+      throw createError(404, "Song group not found");
+    }
+
+    await db.delete(songGroups).where(eq(songGroups.id, req.params.groupId));
+    res.json({ message: "Song group deleted" });
+  })
+);
+
+// ── POST /api/songs/groups/:groupId/songs — bulk add songs ───
+songRoutes.post(
+  "/groups/:groupId/songs",
+  auth,
+  orgContext,
+  requireOrg,
+  requireOrgRole("admin", "musician"),
+  asyncHandler(async (req, res) => {
+    const rawSongIds = Array.isArray(req.body?.songIds) ? req.body.songIds : [];
+    const songIds = [...new Set(rawSongIds.map((value) => String(value).trim()).filter(Boolean))];
+    if (songIds.length === 0) {
+      throw createError(400, "At least one song id is required");
+    }
+
+    const [group] = await db
+      .select({ id: songGroups.id })
+      .from(songGroups)
+      .where(and(eq(songGroups.id, req.params.groupId), eq(songGroups.organizationId, req.org.id)))
+      .limit(1);
+
+    if (!group) {
+      throw createError(404, "Song group not found");
+    }
+
+    const validSongs = await db
+      .select({ id: songs.id })
+      .from(songs)
+      .where(and(eq(songs.organizationId, req.org.id), inArray(songs.id, songIds)));
+
+    const validSongIds = validSongs.map((song) => song.id);
+    if (validSongIds.length === 0) {
+      throw createError(400, "No valid songs found for this group");
+    }
+
+    const existingAssignments = await db
+      .select({ songId: songGroupSongs.songId })
+      .from(songGroupSongs)
+      .where(and(eq(songGroupSongs.groupId, req.params.groupId), inArray(songGroupSongs.songId, validSongIds)));
+
+    const existingSet = new Set(existingAssignments.map((row) => row.songId));
+    const addedSongIds = validSongIds.filter((songId) => !existingSet.has(songId));
+
+    if (addedSongIds.length > 0) {
+      await db.insert(songGroupSongs).values(
+        addedSongIds.map((songId) => ({
+          groupId: req.params.groupId,
+          songId,
+        }))
+      );
+    }
+
+    res.status(201).json({
+      addedSongIds,
+      skippedSongIds: validSongIds.filter((songId) => existingSet.has(songId)),
+    });
+  })
+);
+
+// ── DELETE /api/songs/groups/:groupId/songs/:songId ──────────
+songRoutes.delete(
+  "/groups/:groupId/songs/:songId",
+  auth,
+  orgContext,
+  requireOrg,
+  requireOrgRole("admin", "musician"),
+  asyncHandler(async (req, res) => {
+    const [group] = await db
+      .select({ id: songGroups.id })
+      .from(songGroups)
+      .where(and(eq(songGroups.id, req.params.groupId), eq(songGroups.organizationId, req.org.id)))
+      .limit(1);
+
+    if (!group) {
+      throw createError(404, "Song group not found");
+    }
+
+    await db
+      .delete(songGroupSongs)
+      .where(and(eq(songGroupSongs.groupId, req.params.groupId), eq(songGroupSongs.songId, req.params.songId)));
+
+    res.json({ message: "Song removed from group" });
+  })
+);
+
+// ── GET /api/songs/most-used — top songs by usage count ──────
+songRoutes.get(
+  "/most-used",
+  auth,
+  orgContext,
+  asyncHandler(async (req, res) => {
+    const { limit = "10" } = req.query;
+
+    const conditions = [];
+    if (req.org) {
+      conditions.push(eq(songUsages.organizationId, req.org.id));
+    }
+
+    // Aggregate usage counts per song, then join with songs table
+    const subquery = db
+      .select({
+        songId: songUsages.songId,
+        useCount: sql`count(*)::int`.as("use_count"),
+        lastUsed: sql`max(${songUsages.usedAt})`.as("last_used"),
+      })
+      .from(songUsages)
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .groupBy(songUsages.songId)
+      .orderBy(sql`count(*) desc`)
+      .limit(parseInt(limit, 10))
+      .as("usage_agg");
+
+    const result = await db
+      .select({
+        id: songs.id,
+        title: songs.title,
+        category: songs.category,
+        key: songs.key,
+        tempo: songs.tempo,
+        artist: songs.artist,
+        tags: songs.tags,
+        useCount: subquery.useCount,
+        lastUsed: subquery.lastUsed,
+      })
+      .from(subquery)
+      .innerJoin(songs, eq(songs.id, subquery.songId))
+      .orderBy(sql`${subquery.useCount} desc`);
+
+    res.json({ songs: result });
+  })
+);
+
+// ── GET /api/songs/export/zip — export selected songs as zip ─
+songRoutes.get(
+  "/export/zip",
+  auth,
+  orgContext,
+  asyncHandler(async (req, res) => {
+    const format = String(req.query.format || "chordpro").toLowerCase();
+    if (!["chordpro", "onsong", "text"].includes(format)) {
+      throw createError(400, "format must be chordpro, onsong, or text");
+    }
+
+    const rawIds = Array.isArray(req.query.id)
+      ? req.query.id
+      : req.query.id
+        ? [req.query.id]
+        : typeof req.query.ids === "string"
+          ? req.query.ids.split(",")
+          : [];
+
+    const songIds = [...new Set(rawIds.map((value) => String(value).trim()).filter(Boolean))];
+
+    if (songIds.length === 0) {
+      throw createError(400, "At least one song id is required for zip export");
+    }
+
+    const conditions = [inArray(songs.id, songIds)];
+    if (req.org) {
+      conditions.push(eq(songs.organizationId, req.org.id));
+    }
+
+    const rows = await db
+      .select({
+        id: songs.id,
+        title: songs.title,
+        content: songs.content,
+        key: songs.key,
+        artist: songs.artist,
+        tempo: songs.tempo,
+      })
+      .from(songs)
+      .where(and(...conditions));
+
+    const rowsById = new Map(rows.map((row) => [row.id, row]));
+    const orderedSongs = songIds.map((id) => rowsById.get(id)).filter(Boolean);
+
+    if (orderedSongs.length === 0) {
+      throw createError(404, "No songs found for export");
+    }
+
+    const zip = new JSZip();
+    const manifestLines = [
+      "Song Library Export",
+      `Format: ${format}`,
+      `Requested songs: ${songIds.length}`,
+      `Exported songs: ${orderedSongs.length}`,
+    ];
+
+    if (orderedSongs.length !== songIds.length) {
+      manifestLines.push(`Skipped songs: ${songIds.length - orderedSongs.length}`);
+    }
+
+    manifestLines.push("");
+
+    for (const [index, song] of orderedSongs.entries()) {
+      const target = buildExportContent(song, null);
+      const converted = convertExportContent(target, format);
+      const fileName = `${String(index + 1).padStart(2, "0")} - ${sanitizeFilename(target.title)}.${converted.extension}`;
+      zip.file(fileName, converted.content);
+      manifestLines.push(`${index + 1}. ${target.title}`);
+    }
+
+    zip.file("00 - Export Info.txt", manifestLines.join("\n"));
+
+    const buffer = await zip.generateAsync({ type: "nodebuffer" });
+    res.setHeader("Content-Type", "application/zip");
+    res.setHeader("Content-Disposition", `attachment; filename="song-library-${format}.zip"`);
+    res.send(buffer);
+  })
+);
+
 // ── GET /api/songs/:id — get single song ─────────────────────
 songRoutes.get(
   "/:id",
+  auth,
   asyncHandler(async (req, res) => {
     const [song] = await db
       .select()
@@ -148,8 +715,9 @@ songRoutes.post(
   auth,
   orgContext,
   requireOrg,
+  requireOrgRole("admin", "musician"),
   asyncHandler(async (req, res) => {
-    const { title, key, tempo, artist, year, tags, content, isDraft } = req.body;
+    const { title, aka, category, key, tempo, artist, shout, year, tags, content, isDraft } = req.body;
 
     if (!title || !content) {
       throw createError(400, "Title and content are required");
@@ -159,9 +727,12 @@ songRoutes.post(
       .insert(songs)
       .values({
         title,
+        aka: aka || null,
+        category: category || null,
         key: key || null,
         tempo: tempo ? parseInt(tempo, 10) : null,
         artist: artist || null,
+        shout: shout || null,
         year: year || null,
         tags: tags || null,
         content,
@@ -178,9 +749,10 @@ songRoutes.post(
 // ── PUT /api/songs/:id — update song ─────────────────────────
 songRoutes.put(
   "/:id",
-  auth,
-  asyncHandler(async (req, res) => {
-    const { title, key, tempo, artist, year, tags, content, isDraft } = req.body;
+  auth,  orgContext,
+  requireOrg,
+  requireOrgRole("admin", "musician"),  asyncHandler(async (req, res) => {
+    const { title, aka, category, key, tempo, artist, shout, year, tags, content, isDraft } = req.body;
 
     const [existing] = await db
       .select()
@@ -193,7 +765,7 @@ songRoutes.put(
     }
 
     // Track field-level changes for edit history
-    const trackedFields = { title, key, tempo, artist, year, tags, content, isDraft };
+    const trackedFields = { title, aka, category, key, tempo, artist, shout, year, tags, content, isDraft };
     const edits = [];
     for (const [field, newVal] of Object.entries(trackedFields)) {
       if (newVal === undefined) continue;
@@ -215,9 +787,12 @@ songRoutes.put(
       .update(songs)
       .set({
         ...(title !== undefined && { title }),
+        ...(aka !== undefined && { aka }),
+        ...(category !== undefined && { category }),
         ...(key !== undefined && { key }),
         ...(tempo !== undefined && { tempo: tempo ? parseInt(tempo, 10) : null }),
         ...(artist !== undefined && { artist }),
+        ...(shout !== undefined && { shout }),
         ...(year !== undefined && { year }),
         ...(tags !== undefined && { tags }),
         ...(content !== undefined && { content }),
@@ -239,8 +814,9 @@ songRoutes.put(
 // ── DELETE /api/songs/:id — delete song ──────────────────────
 songRoutes.delete(
   "/:id",
-  auth,
-  asyncHandler(async (req, res) => {
+  auth,  orgContext,
+  requireOrg,
+  requireOrgRole("admin", "musician"),  asyncHandler(async (req, res) => {
     const [existing] = await db
       .select({ id: songs.id })
       .from(songs)
@@ -250,6 +826,11 @@ songRoutes.delete(
     if (!existing) {
       throw createError(404, "Song not found");
     }
+
+    await db
+      .update(songs)
+      .set({ defaultVariationId: null, updatedAt: new Date() })
+      .where(eq(songs.id, req.params.id));
 
     // Delete variations first
     await db
@@ -290,10 +871,11 @@ songRoutes.get(
 
 // ── POST /api/songs/import/chrd — import from .chrd format ──
 songRoutes.post(
-  "/import/chrd",
+  "/import/chrd/preview",
   auth,
   orgContext,
   requireOrg,
+  requireOrgRole("admin", "musician"),
   asyncHandler(async (req, res) => {
     const { filename, content: rawContent } = req.body;
 
@@ -301,71 +883,36 @@ songRoutes.post(
       throw createError(400, "Content is required");
     }
 
-    // .chrd format: first line = title, rest = chord chart
-    // Convert to ChordPro: wrap likely chord lines in brackets
-    const lines = rawContent.split("\n");
-    const title = filename
-      ? filename.replace(/\.chrd$/i, "")
-      : lines[0]?.trim() || "Untitled";
+    const { chordProContent, metadata } = convertChrdToChordPro(filename, rawContent);
+    res.status(200).json({ chordPro: chordProContent, metadata });
+  })
+);
 
-    // Simple heuristic: a line that's mostly chord-like tokens gets bracket-wrapped
-    const chordPattern = /^[A-G][b#]?(m|min|maj|dim|aug|sus[24]?|add)?[0-9]*(\/[A-G][b#]?)?$/;
-    const convertedLines = [];
-    let i = 0;
+songRoutes.post(
+  "/import/chrd",
+  auth,
+  orgContext,
+  requireOrg,
+  requireOrgRole("admin", "musician"),
+  asyncHandler(async (req, res) => {
+    const { filename, content: rawContent } = req.body;
 
-    // Skip first line if it matches the title
-    if (lines[0]?.trim() === title) i = 1;
-
-    while (i < lines.length) {
-      const line = lines[i];
-      const trimmed = line.trim();
-
-      // Check if this is a chord-only line
-      const tokens = trimmed.split(/\s+/);
-      const isChordLine = tokens.length > 0 && tokens.every((t) => chordPattern.test(t) || t === "" || t === "|");
-
-      if (isChordLine && i + 1 < lines.length && lines[i + 1].trim()) {
-        // Chord line followed by lyric line — merge them
-        const chords = tokens;
-        const lyricLine = lines[i + 1];
-        let result = "";
-        let chordIdx = 0;
-        let col = 0;
-
-        // Match chord positions to the original spacing
-        const positions = [];
-        let pos = 0;
-        for (const match of line.matchAll(/\S+/g)) {
-          positions.push({ chord: match[0], col: match.index });
-        }
-
-        // Insert chords into lyric line at approximate positions
-        let lyric = lyricLine;
-        let offset = 0;
-        for (const { chord, col: chordCol } of positions) {
-          const insertAt = Math.min(chordCol + offset, lyric.length);
-          lyric = lyric.slice(0, insertAt) + `[${chord}]` + lyric.slice(insertAt);
-          offset += chord.length + 2; // brackets
-        }
-        convertedLines.push(lyric);
-        i += 2;
-      } else if (isChordLine) {
-        // Chord-only line — wrap each chord
-        convertedLines.push(tokens.map((t) => (chordPattern.test(t) ? `[${t}]` : t)).join(" "));
-        i++;
-      } else {
-        convertedLines.push(trimmed);
-        i++;
-      }
+    if (!rawContent) {
+      throw createError(400, "Content is required");
     }
 
-    const chordProContent = `{title: ${title}}\n\n${convertedLines.join("\n")}`;
+    const { title, chordProContent, metadata } = convertChrdToChordPro(filename, rawContent);
 
     const [song] = await db
       .insert(songs)
       .values({
         title,
+        key: metadata.key || null,
+        tempo: metadata.tempo || null,
+        artist: metadata.artist || null,
+        year: metadata.year || null,
         content: chordProContent,
+        isDraft: metadata.isDraft ?? false,
         organizationId: req.org.id,
         createdBy: req.user.id,
       })
@@ -377,20 +924,120 @@ songRoutes.post(
 
 // ── POST /api/songs/import/onsong — import from OnSong ───────
 songRoutes.post(
+  "/import/onsong/preview",
+  auth,
+  orgContext,
+  requireOrg,
+  requireOrgRole("admin", "musician"),
+  asyncHandler(async (req, res) => {
+    const { filename, content: rawContent } = req.body;
+
+    if (!rawContent) {
+      throw createError(400, "Content is required");
+    }
+
+    const chordProContent = onSongToChordPro(rawContent);
+    if (!chordProContent.trim()) {
+      throw createError(400, "Imported OnSong/OpenSong content was empty");
+    }
+
+    const fallbackTitle = filename
+      ? filename.replace(/\.(onsong|xml)$/i, "")
+      : "Untitled";
+    const metadata = parseImportedMetadata(chordProContent, fallbackTitle);
+
+    res.status(200).json({ chordPro: chordProContent, metadata });
+  })
+);
+
+songRoutes.post(
   "/import/onsong",
   auth,
-  asyncHandler(async (_req, res) => {
-    // TODO: OnSong → ChordPro conversion
-    throw createError(501, "OnSong import not yet implemented");
+  orgContext,
+  requireOrg,
+  requireOrgRole("admin", "musician"),
+  asyncHandler(async (req, res) => {
+    const { filename, content: rawContent } = req.body;
+
+    if (!rawContent) {
+      throw createError(400, "Content is required");
+    }
+
+    const chordProContent = onSongToChordPro(rawContent);
+    if (!chordProContent.trim()) {
+      throw createError(400, "Imported OnSong/OpenSong content was empty");
+    }
+
+    const fallbackTitle = filename
+      ? filename.replace(/\.(onsong|xml)$/i, "")
+      : "Untitled";
+    const { title, artist, key, tempo } = parseImportedMetadata(chordProContent, fallbackTitle);
+
+    const [song] = await db
+      .insert(songs)
+      .values({
+        title,
+        artist,
+        key,
+        tempo,
+        content: chordProContent,
+        organizationId: req.org.id,
+        createdBy: req.user.id,
+      })
+      .returning();
+
+    res.status(201).json({ song, chordPro: chordProContent });
   })
 );
 
 // ── POST /api/songs/import/pdf — import from PDF via PDF.co ──
 songRoutes.post(
+  "/import/pdf/preview",
+  auth,
+  orgContext,
+  requireOrg,
+  requireOrgRole("admin", "musician"),
+  upload.single("file"),
+  asyncHandler(async (req, res) => {
+    if (!req.file) {
+      throw createError(400, "A PDF file is required");
+    }
+
+    if (!env.PDF_CO_API_KEY) {
+      throw createError(
+        503,
+        "PDF import is not available — PDF.co API key is not configured",
+      );
+    }
+
+    const { chordPro, metadata: extractedMetadata } = await convertPdfToChordPro(req.file.buffer);
+
+    if (!chordPro || !chordPro.trim()) {
+      throw createError(
+        422,
+        "Could not extract usable content from the PDF. It may be scanned or image-based.",
+      );
+    }
+
+    const fallbackTitle = extractedMetadata.title || req.file.originalname?.replace(/\.pdf$/i, "") || "Untitled (PDF Import)";
+    const metadata = {
+      ...parseImportedMetadata(chordPro, fallbackTitle),
+      title: extractedMetadata.title || parseImportedMetadata(chordPro, fallbackTitle).title,
+      artist: extractedMetadata.artist || parseImportedMetadata(chordPro, fallbackTitle).artist,
+      key: extractedMetadata.key || parseImportedMetadata(chordPro, fallbackTitle).key,
+      tempo: extractedMetadata.tempo || parseImportedMetadata(chordPro, fallbackTitle).tempo,
+    };
+
+    res.status(200).json({ chordPro, metadata });
+  })
+);
+
+songRoutes.post(
   "/import/pdf",
   auth,
   orgContext,
   requireOrg,
+  requireOrgRole("admin", "musician"),
   upload.single("file"),
   asyncHandler(async (req, res) => {
     if (!req.file) {
@@ -437,67 +1084,65 @@ songRoutes.post(
 // ── GET /api/songs/:id/export/chordpro — export as ChordPro ─
 songRoutes.get(
   "/:id/export/chordpro",
+  auth,
   asyncHandler(async (req, res) => {
-    const [song] = await db
-      .select({ title: songs.title, content: songs.content })
-      .from(songs)
-      .where(eq(songs.id, req.params.id))
-      .limit(1);
-
-    if (!song) throw createError(404, "Song not found");
+    const target = await getSongExportTarget(req.params.id, req.query.variationId);
 
     res.setHeader("Content-Type", "text/plain; charset=utf-8");
     res.setHeader(
       "Content-Disposition",
-      `attachment; filename="${song.title.replace(/[^a-zA-Z0-9 ]/g, "")}.chopro"`
+      `attachment; filename="${target.title.replace(/[^a-zA-Z0-9 ]/g, "")}.chopro"`
     );
-    res.send(song.content);
+    res.send(target.content);
   })
 );
 
 // ── GET /api/songs/:id/export/onsong ─────────────────────────
 songRoutes.get(
   "/:id/export/onsong",
+  auth,
   asyncHandler(async (req, res) => {
-    const [song] = await db
-      .select({ title: songs.title, content: songs.content })
-      .from(songs)
-      .where(eq(songs.id, req.params.id))
-      .limit(1);
+    const target = await getSongExportTarget(req.params.id, req.query.variationId);
 
-    if (!song) throw createError(404, "Song not found");
-
-    const onsongText = chordProToOnSong(song.content);
-    const safeName = song.title.replace(/[^a-zA-Z0-9 ]/g, "");
+    const onsongText = chordProToOnSong(target.content);
+    const safeName = target.title.replace(/[^a-zA-Z0-9 ]/g, "");
     res.setHeader("Content-Type", "text/plain; charset=utf-8");
     res.setHeader("Content-Disposition", `attachment; filename="${safeName}.onsong"`);
     res.send(onsongText);
   })
 );
 
+// ── GET /api/songs/:id/export/text ───────────────────────────
+songRoutes.get(
+  "/:id/export/text",
+  auth,
+  asyncHandler(async (req, res) => {
+    const target = await getSongExportTarget(req.params.id, req.query.variationId);
+    const lyricsOnly = req.query.lyricsOnly === "true";
+    const text = chordProToPlainText(target.content, { lyricsOnly });
+    const safeName = target.title.replace(/[^a-zA-Z0-9 ]/g, "");
+
+    res.setHeader("Content-Type", "text/plain; charset=utf-8");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${safeName}${lyricsOnly ? "-lyrics" : ""}.txt"`
+    );
+    res.send(text);
+  })
+);
+
 // ── GET /api/songs/:id/export/pdf ────────────────────────────
 songRoutes.get(
   "/:id/export/pdf",
+  auth,
   asyncHandler(async (req, res) => {
-    const [song] = await db
-      .select({
-        title: songs.title,
-        content: songs.content,
-        key: songs.key,
-        artist: songs.artist,
-        tempo: songs.tempo,
-      })
-      .from(songs)
-      .where(eq(songs.id, req.params.id))
-      .limit(1);
+    const target = await getSongExportTarget(req.params.id, req.query.variationId);
 
-    if (!song) throw createError(404, "Song not found");
-
-    const doc = parseChordPro(song.content);
+    const doc = parseChordPro(target.content);
     const metaHtml = [
-      song.key ? `<span>Key: ${song.key}</span>` : "",
-      song.artist ? `<span>Artist: ${song.artist}</span>` : "",
-      song.tempo ? `<span>Tempo: ${song.tempo} BPM</span>` : "",
+      target.key ? `<span>Key: ${target.key}</span>` : "",
+      target.artist ? `<span>Artist: ${target.artist}</span>` : "",
+      target.tempo ? `<span>Tempo: ${target.tempo} BPM</span>` : "",
     ]
       .filter(Boolean)
       .join(" &middot; ");
@@ -532,7 +1177,7 @@ songRoutes.get(
     }
 
     const html = `<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>${escapeHtml(song.title)}</title>
+<html><head><meta charset="utf-8"><title>${escapeHtml(target.title)}</title>
 <style>
   @page { size: letter; margin: 0.75in; }
   body { font-family: 'Inter','Segoe UI',sans-serif; font-size: 12px; color: #1a1a1a; }
@@ -541,7 +1186,7 @@ songRoutes.get(
   @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
 </style>
 </head><body>
-<h1>${escapeHtml(song.title)}</h1>
+<h1>${escapeHtml(target.title)}</h1>
 ${metaHtml ? `<div class="meta">${metaHtml}</div>` : ""}
 ${bodyHtml}
 <script>window.onload=function(){window.print()}</script>
@@ -557,6 +1202,8 @@ songRoutes.post(
   "/:id/usage",
   auth,
   orgContext,
+  requireOrg,
+  requireOrgRole("admin", "musician"),
   asyncHandler(async (req, res) => {
     const { usedAt, notes } = req.body;
 
@@ -605,6 +1252,9 @@ songRoutes.get(
 songRoutes.delete(
   "/:id/usage/:usageId",
   auth,
+  orgContext,
+  requireOrg,
+  requireOrgRole("admin", "musician"),
   asyncHandler(async (req, res) => {
     const [existing] = await db
       .select({ id: songUsages.id })
@@ -627,10 +1277,67 @@ songRoutes.delete(
 
 // ── Song Variations ──────────────────────────────────────────
 
+// ── PATCH /api/songs/:id/default-variation — set default ────
+songRoutes.patch(
+  "/:id/default-variation",
+  auth,
+  orgContext,
+  requireOrg,
+  requireOrgRole("admin", "musician"),
+  asyncHandler(async (req, res) => {
+    const { variationId = null } = req.body ?? {};
+
+    const [song] = await db
+      .select({
+        id: songs.id,
+        organizationId: songs.organizationId,
+      })
+      .from(songs)
+      .where(eq(songs.id, req.params.id))
+      .limit(1);
+
+    if (!song) throw createError(404, "Song not found");
+    if (song.organizationId && req.org.id !== song.organizationId) {
+      throw createError(403, "You do not have access to this song");
+    }
+
+    if (variationId !== null) {
+      const [variation] = await db
+        .select({ id: songVariations.id })
+        .from(songVariations)
+        .where(
+          and(
+            eq(songVariations.id, variationId),
+            eq(songVariations.songId, req.params.id)
+          )
+        )
+        .limit(1);
+
+      if (!variation) {
+        throw createError(400, "Variation does not belong to this song");
+      }
+    }
+
+    const [updatedSong] = await db
+      .update(songs)
+      .set({
+        defaultVariationId: variationId,
+        updatedAt: new Date(),
+      })
+      .where(eq(songs.id, req.params.id))
+      .returning();
+
+    res.json({ song: updatedSong });
+  })
+);
+
 // ── POST /api/songs/:id/variations — create a variation ──────
 songRoutes.post(
   "/:id/variations",
   auth,
+  orgContext,
+  requireOrg,
+  requireOrgRole("admin", "musician"),
   asyncHandler(async (req, res) => {
     const { name, content, key } = req.body;
 
@@ -666,6 +1373,9 @@ songRoutes.post(
 songRoutes.put(
   "/:id/variations/:varId",
   auth,
+  orgContext,
+  requireOrg,
+  requireOrgRole("admin", "musician"),
   asyncHandler(async (req, res) => {
     const { name, content, key } = req.body;
 
@@ -701,6 +1411,9 @@ songRoutes.put(
 songRoutes.delete(
   "/:id/variations/:varId",
   auth,
+  orgContext,
+  requireOrg,
+  requireOrgRole("admin", "musician"),
   asyncHandler(async (req, res) => {
     const [existing] = await db
       .select({ id: songVariations.id })
@@ -714,6 +1427,19 @@ songRoutes.delete(
       .limit(1);
 
     if (!existing) throw createError(404, "Variation not found");
+
+    await db
+      .update(songs)
+      .set({
+        defaultVariationId: null,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(songs.id, req.params.id),
+          eq(songs.defaultVariationId, req.params.varId)
+        )
+      );
 
     await db.delete(songVariations).where(eq(songVariations.id, req.params.varId));
 

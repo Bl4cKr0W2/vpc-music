@@ -73,6 +73,9 @@ Songs use a custom text format with line-type prefixes:
 - 100+ songs in `.chrd` format in the `songList/` directory
 - Includes metadata (author, year) in song headers
 - Draft/work-in-progress songs prefixed with `~`
+- Song library toolbar supports text search, key filtering, tag filtering sourced from the song-tag catalog endpoint, minimum/maximum BPM filtering, sort modes for title, last edited, most used, and recently added, previous/next pagination controls, and key-aware song links that open charts in the selected search key
+- Song metadata now includes optional alternate names plus an associated shout/callout field across edit, full-view, shared-view, and song-library search flows
+- BPM metadata now shows a tempo pulse indicator on library, dashboard, song view, shared song view, and performance mode screens when tempo is available
 
 ---
 
@@ -198,6 +201,39 @@ PDF upload
 - **Sticky Notes** — attach personal reminders to any song or section ✅ *Implemented*
 - **Song Status Indicator** — visual flags for incomplete data (e.g. missing chords, no tempo set)
 
+### ✏️ ChordPro Editor ✅
+
+The built-in ChordPro editor provides a rich editing experience with real-time feedback:
+
+**Syntax Highlighting** — transparent textarea overlay architecture with 5 token types:
+- **Chords** (`[G]`, `[C#m7]`, `[Bb/F]`) — gold/bold
+- **Directives** (`{title: ...}`, `{key: ...}`) — sky-blue
+- **Section headers** (`{comment: Verse 1}`) — gold/bold/italic
+- **Lyrics** — default foreground
+- **Invalid syntax** — red wavy underline (unclosed brackets/braces)
+
+**Inline Validation** — real-time error/warning panel below the editor:
+- Missing closing `]` bracket, unbalanced `{`/`}` braces
+- Unknown directives, duplicate unique directives (title, key, tempo, etc.)
+- Collapsible issue list with line numbers and severity icons
+
+**Keyboard Shortcuts:**
+
+| Shortcut | Action |
+|---|---|
+| `Ctrl+S` | Save song |
+| `Ctrl+/` | Toggle comment on selected line(s) |
+| `Ctrl+K` | Insert chord at cursor / open chord popup on selection |
+| `Ctrl+Shift+V` | Insert Verse header |
+| `Ctrl+Shift+C` | Insert Chorus header |
+| `Ctrl+Shift+B` | Insert Bridge header |
+| `Alt+Up` | Transpose selected chords up one semitone |
+| `Alt+Down` | Transpose selected chords down one semitone |
+
+**Insert Menu** — 19 quick-insert options including all section types, metadata block template, and full song skeleton.
+
+**Help Section** — collapsible 4-tab reference panel (Quick Tips, Shortcuts, Common Directives, Section Templates) with localStorage persistence.
+
 ### 📁 Song Metadata
 
 | Field | Description |
@@ -230,6 +266,35 @@ PDF upload
 - **Zoom Controls** — pinch-to-zoom, buttons, or font scaling with persistent preference
 - **Responsive Mobile/Tablet Zoom** — automatic zoom adjustments per device class
 - **Print Stylesheet** — clean print output that strips UI chrome and forces readable colors
+
+### 🎨 CSS Design System ✅
+
+The web app uses a comprehensive CSS design system defined in `apps/web/src/styles/index.css` with Tailwind CSS v4 (CSS-first configuration via `@theme {}`). Reusable component classes live in a `@layer components {}` block.
+
+**Design Tokens** (added to `@theme`):
+- `--shadow-card`, `--shadow-card-hover`, `--shadow-dropdown`, `--shadow-modal` — elevation system
+- `--duration-fast` (150ms), `--duration-normal` (200ms), `--duration-slow` (300ms) — transition timing
+
+**Component Classes:**
+
+| Category | Classes | Description |
+|---|---|---|
+| **Buttons** | `.btn`, `.btn-primary`, `.btn-outline`, `.btn-ghost`, `.btn-destructive`, `.btn-success`, `.btn-sm`, `.btn-xs`, `.btn-icon` | Full button system with variants, sizes, and icon-only |
+| **Inputs** | `.input`, `.select` | Form controls with focus rings and dark mode support |
+| **Cards** | `.card`, `.card-interactive`, `.card-body`, `.card-body-lg`, `.card-empty` | Elevated containers with hover states and empty states |
+| **Badges** | `.badge`, `.badge-muted`, `.badge-success`, `.badge-warning`, `.badge-key` | Status and metadata badges |
+| **Modals** | `.modal-backdrop`, `.modal-content` | Overlay and centered dialog |
+| **Headers** | `.section-header`, `.section-title`, `.section-title-icon`, `.page-header`, `.page-title` | Consistent page and section headings |
+| **Lists** | `.list-container`, `.list-item` | Divided list with hover states |
+| **Links** | `.link-muted`, `.link-accent` | Styled anchor variants |
+| **Effects** | `.glass` | Backdrop-blur glass morphism effect |
+| **Loading** | `.spinner` | Animated spin indicator |
+
+**AppShell / Header:**
+- Sticky glass header with `backdrop-blur` and semi-transparent background
+- Mobile hamburger menu with slide-down drawer for screens < 768px
+- Active nav indicator via gold underline CSS pseudo-element on `NavLink`
+- User avatar showing gold circle with white initials from display name
 
 ### 🔍 Navigation & Search
 
@@ -268,6 +333,9 @@ PDF upload
 
 - **Login** — secure authentication
 - **Organizations** — churches/teams modeled as organizations; users belong to orgs with per-org roles
+- **Org switcher** — header org selector persists the active org in localStorage and sends it to the API via `X-Organization-Id`
+- **Org creation flow** — owners and worship leaders can create an organization from the header switcher or empty-org onboarding state
+- **Owner org visibility** — global owners receive all organizations in their auth payload, not just direct memberships
 - **Roles**
   | Scope | Role | Permissions |
   |---|---|---|
@@ -297,7 +365,9 @@ Here are some features worth considering that could take VPC Music to the next l
 
 ### Performance Mode
 - **Auto-Scroll** — configurable scroll speed per song, tempo-synced or manual
-- **Setlist Countdown Timer** — track time remaining per song or full set
+- **Setlist Countdown Timer** — configurable 2–10 min timer per song with progress bar, pause/play, warning states ✅ *Implemented*
+- **Performance-mode layout** — full-screen distraction-free overlay with large fonts (12–36px), no nav, collapsible toolbar ✅ *Implemented*
+- **Setlist song transitions** — prev/next buttons, keyboard (N/P, ←/→), dot navigation, "Up next" banner ✅ *Implemented*
 - **Foot Pedal / Bluetooth Control** — page turns and song navigation hands-free ✅ *Implemented*
 
 ### Collaboration & Rehearsal
@@ -306,10 +376,11 @@ Here are some features worth considering that could take VPC Music to the next l
 - **Comment Threads on Songs** — per-section discussion (e.g. "Let's extend the bridge here")
 
 ### Smart Features
-- **Recently Played / Frequently Used** — quick access to your go-to songs
+- **Recently Played / Frequently Used** — dashboard section showing top songs by usage count with last-used date ✅ *Implemented*
+- **Key Compatibility Checker** — flags awkward key transitions (≥5 semitones) between adjacent setlist songs ✅ *Implemented*
+- **Song Status Indicator** — visual flags on dashboard for songs missing key or tempo ✅ *Implemented*
 - **Duplicate Detection** — flag when a new song closely matches an existing one (title or lyrics)
 - **AI Chord Suggestion** — auto-detect or suggest chords from lyrics/audio
-- **Key Compatibility Checker** — when building a setlist, flag awkward key transitions between songs
 
 ### Offline & Sync
 - **Offline Mode** — ✅ PWA with auto-updating service worker (Workbox), precached app shell, runtime-cached API data (NetworkFirst with 7-day expiry), Google Fonts caching, branded offline fallback page
@@ -694,6 +765,7 @@ vpc-music/
 │   │   │   │   ├── songs/      #     CRUD + search + .chrd import + ChordPro export
 │   │   │   │   ├── setlists/   #     Setlist CRUD + song ordering/add/remove
 │   │   │   │   ├── events/     #     Event CRUD (upcoming events on dashboard)
+│   │   │   │   ├── organizations/ #   Org CRUD (create, list, rename, owner delete)
 │   │   │   │   ├── share/      #     Token-based read-only song sharing
 │   │   │   │   ├── admin/      #     Org-scoped user management
 │   │   │   │   └── platform/   #     User settings, profile, password change
@@ -805,6 +877,7 @@ vpc-music/
 | `/api/shared/:token` | `features/share/` | Public song access via share token (no auth) |
 | `/api/setlists` | `features/setlists/` | Setlist CRUD, add/remove/reorder songs, mark complete/reopen |
 | `/api/events` | `features/events/` | Event CRUD with optional setlist links |
+| `/api/organizations` | `features/organizations/` | Organization create/list/rename/delete, with owner-wide visibility and owner-only delete |
 | `/api/platform` | `features/platform/` | User settings, profile update, password change |
 | `/api/admin/users` | `features/admin/` | Team management — list, invite, update roles, remove members |
 
@@ -818,6 +891,7 @@ vpc-music/
 | `pnpm --filter @vpc-music/api test` | Run API tests (Vitest) |
 | `pnpm lint` | Lint web app |
 | `pnpm typecheck` | TypeScript check |
+| `pnpm migrate:chrd` | Batch-convert `songList/` legacy `.chrd` files into sibling `.chopro` files and emit JSON/text migration reports |
 | `pnpm deploy` | Route deploy by environment |
 | `pnpm db:push` | Push Drizzle schema to DB |
 | `pnpm db:generate` | Generate Drizzle migrations |
@@ -833,24 +907,29 @@ vpc-music/
 
 ## Testing
 
-The project uses **Vitest** across both apps with **791 tests** (674 web + 117 API) — all passing.
+The project uses **Vitest** across the web app, API, and workspace scripts with **1,457 verified tests** in the main suites (**1,067 web + 296 API + 94 scripts**) — all passing and re-verified across the latest suite passes after the SongList tag-filter chunk, the tempo visual blinker chunk, the tempo range filter chunk, the associated shout chunk, the AKA / alternate names chunk, the sort options chunk, the pagination chunk, the key-aware search chunk, the tag CRUD metadata-coverage chunk, the song-category metadata chunk, the song-groups chunk, the dedicated org creation dialog / auto-switch polish, arbitrary multi-song library ZIP export, org settings UI, org switcher coverage, and org API success-coverage chunks.
 
-### Web Tests (`apps/web`) — 674 tests, 39 files
+### Web Tests (`apps/web`) — 1,067 tests, 54 files
 - **Environment:** jsdom with `@testing-library/react` + `@testing-library/jest-dom`
 - **Run:** `pnpm test` (from root or `apps/web`)
 - **Coverage areas:**
   - **Pages:** Landing, Login, Dashboard, Songs (list/view/edit), Setlists, Settings, Admin, SharedSong, NotFound, ForgotPassword, ResetPassword
-  - **Components:** ChordProRenderer (transpose controls, Nashville display, directives, sections, AutoScroll), print stylesheet, theme toggle, app shell
+  - **Components:** ChordProRenderer (transpose controls, Nashville display, directives, sections, AutoScroll), ChordProEditor (section insert, chord popup, metadata sync, keyboard shortcuts), SyntaxHighlightOverlay, ValidationPanel, EditorHelpSection, print stylesheet, theme toggle, app shell
   - **Contexts:** AuthContext (login/register/logout, session restore, activeOrg derivation, setActiveOrganizationId sync), ThemeContext
   - **Hooks:** useConductor (Socket.IO conductor/member modes, room state updates, song navigation, scroll sync, cleanup), useKeyboardShortcuts
-  - **Utilities:** transpose, Nashville numbers, OnSong converter, ChordPro parser, music constants, api-client (including PDF import), oauth-popup (popup open/close, postMessage handling, origin validation)
-  - **Features:** share management, song variations, real-time sync, export formats, PDF import, song edit history, sticky notes
+  - **Utilities:** transpose, Nashville numbers, OnSong/OpenSong conversion, plain text export, ChordPro parser, ChordPro tokenizer/highlighter, ChordPro validator, music constants, api-client (including preview/import flows and setlist zip export), oauth-popup (popup open/close, postMessage handling, origin validation)
+  - **Features:** share management, song variations, real-time sync, export formats, plain text export, PDF import, OnSong/OpenSong import, bulk import progress, import preview, setlist zip export, song edit history, sticky notes, syntax highlighting, inline validation, performance mode, key compatibility
   - **PWA/Offline:** manifest, meta tags, Vite config, service worker registration, offline fallback, TypeScript declarations
 
-### API Tests (`apps/api`) — 117 tests, 7 files
+### API Tests (`apps/api`) — 296 tests, 13 files
 - **Environment:** Node.js
 - **Run:** `pnpm --filter @vpc-music/api test`
-- **Coverage areas:** Error handling middleware (`createError`, `asyncHandler`, `errorHandler`), auth middleware (JWT validation), org context middleware (`orgContext`, `requireOrg`, `requireOrgRole`), email utilities (send, template builders), conductor/real-time sync (room management, events), PDF-to-ChordPro conversion pipeline (column detection, line assembly, chord classification, chord-to-lyric alignment, metadata extraction, section detection, plain-text fallback)
+- **Coverage areas:** Error handling middleware (`createError`, `asyncHandler`, `errorHandler`), auth middleware (JWT validation), org context middleware (`orgContext`, `requireOrg`, `requireOrgRole`), previously public route 401 regression coverage (including most-used endpoint), protected-route role matrix coverage, organization route auth/validation plus create/list/update/delete success-path coverage, email utilities (send, template builders), conductor/real-time sync (room management, events), PDF-to-ChordPro conversion pipeline (column detection, line assembly, chord classification, chord-to-lyric alignment, metadata extraction, section detection, plain-text fallback)
+
+### Workspace Script Tests (`scripts/`) — 94 tests, 2 files
+- **Environment:** Node.js
+- **Run:** `pnpm test:scripts`
+- **Coverage areas:** build/router and workspace script behavior covered by the root `vitest.config.mjs` suite
 
 ### Shared Package Tests (`shared/`)
 - **Run:** `cd shared && npx vitest run`
@@ -895,10 +974,13 @@ Test files live alongside their source in `src/test/` directories within each ap
 - [x] **Dark / Light theme** — theme toggle (dark, light, system) persisted to localStorage with `prefers-color-scheme` support
 - [x] **Settings page** — profile editing (display name), password change, and theme selector
 - [x] **Import .chrd** — convert legacy `.chrd` format to ChordPro via heuristic chord-line detection and bracket-wrapping
+- [x] **Import OnSong / OpenSong** — import `.onsong` plain-text files and OpenSong `.xml` files, normalize metadata/sections to ChordPro, and open the imported chart for review
 - [x] **Export ChordPro** — download any song as a `.chopro` file
+- [x] **Export Plain Text** — export `.txt` chord charts in chords-over-lyrics format; shared converter also supports lyrics-only output for future UI variants
 - [x] **Real-time sync (backend)** — Socket.io conductor mode with room-based setlist sync (`conductor:join`, `member:join`, `conductor:goto`, `conductor:scroll`, `leave`) and `useConductor` hook
 - [x] **Real-time sync (UI)** — SetlistViewPage live mode with Lead/Join session buttons, connection indicator, members count, now-playing banner, conductor song navigation (Go buttons), current song highlighting, scroll sync (broadcast + receive), conductor-left warning, and leave session flow
 - [x] **Export OnSong / PDF** — export dropdown with ChordPro, OnSong (.onsong), and PDF (print-to-PDF) formats; `chordProToOnSong` converter in shared utilities; server-side OnSong conversion and PDF via styled HTML
+- [x] **Export selected variation** — active variation can now be exported as ChordPro, OnSong, or PDF from SongViewPage via variation-aware export endpoints
 - [x] **Email delivery** — transactional emails via Mailgun SMTP (nodemailer); branded HTML templates for password-reset and team-invite emails; dev fallback logs to console via `jsonTransport`
 - [x] **Song variations** — full CRUD API for song variations (POST/PUT/DELETE), variation tabs on SongViewPage with content/key switching, create/edit/delete modals, pre-filled from original song content
 
@@ -906,6 +988,30 @@ Test files live alongside their source in `src/test/` directories within each ap
 
 - [x] **PDF import pipeline** — geometry-aware PDF → ChordPro conversion via PDF.co: 8-step pipeline (extract coordinates, column detection, line assembly, chord classification, chord-to-word alignment, metadata extraction, section detection, user review); multer file uploads; plain-text fallback ✅ *Implemented*
 - [x] **Offline mode** — PWA with service worker, Workbox runtime caching (NetworkFirst for API data, CacheFirst for fonts), precached app shell, branded offline fallback page ✅ *Implemented*
+- [x] **Security hardening pass (Section 0)** — added `auth` to previously unauthenticated song/setlist/event detail and export routes; added `requireOrgRole("admin", "musician")` to audited song, variation, setlist, event, share, sticky-note, and usage write routes; aligned shared role constants to `observer` / `musician` / `admin`; centralized shared `roleLabel()` for Worship Leader display; added dedicated 401 regression tests and protected-route role-matrix tests
+- [x] **Organization management foundation (Section 1)** — added `/api/organizations` create/list/update/delete routes; owners now receive all orgs from `GET /api/auth/me`; AppShell now has a persisted org switcher with tested create/switch flows plus a dedicated creation dialog that automatically switches into the new org after create; users with no orgs see onboarding that opens the same creation flow; SettingsPage now includes organization rename, member counts for org admins/owners, and owner-only delete controls; org route tests now cover auth, validation, authorization, and create/list/update/delete success paths
+- [x] **Roles & Permissions UX (Section 2)** — role-gated UI across all pages: observers see read-only views with hidden write actions; musicians see content tools but not admin nav; admins/owners see full controls; 22 dedicated role-gated rendering tests; updated `role.md` documentation
+- [x] **Visual Polish & Design System (Section 3)** — comprehensive CSS design system in `@layer components {}` with btn/card/badge/modal/input/list/header/glass classes; AppShell redesign with sticky glass header, mobile hamburger menu, active nav indicator, user avatar; landing page hero refresh with gradient and feature cards; dashboard card elevation and empty states; song and setlist pages restyled with design system
+- [x] **ChordPro Editor Phase 1 (Section 4)** — syntax highlighting via tokenizer engine + transparent textarea overlay architecture (chord/directive/section/lyrics/invalid token types); inline validation panel with error/warning counts and collapsible issue rows; collapsible help section with 4 tabs (Quick Tips, Keyboard Shortcuts, Common Directives, Section Templates) + localStorage persistence; 7 keyboard shortcuts (Ctrl+S save, Ctrl+/ toggle comment, Ctrl+K insert chord, Ctrl+Shift+V/C/B insert sections, Alt+Up/Down transpose); expanded insert menu with metadata block and song skeleton templates; 79 new tests across 5 new test files (855 total web tests passing)
+- [x] **Performance & Stage Features (Section 7)** — full-screen PerformanceMode overlay (`PerformanceMode.tsx`) with configurable countdown timer (2–10 min, auto-start per song, progress bar with amber/red warning states), song-by-song navigation (prev/next buttons, N/P keys, ←/→ arrows, dot navigation), chord show/hide toggle, font size controls (12–36px), collapsible toolbar, AutoScroll integration, "Up next" banner; key compatibility checker (`key-compat.ts`) with `getKeyDistance()`, `keyTransitionLabel()`, `analyzeKeyTransitions()` computing semitone distances (0–6) with enharmonic normalization — integrated into SetlistViewPage with amber warnings between songs with distant keys (≥5 semitones); `GET /api/songs/most-used` endpoint aggregating song usage counts; Dashboard "Frequently Used" section showing top songs by play count; song status indicators (AlertCircle for missing key/tempo); these features remain covered within the latest 1,457 passing tests across web, API, and script suites
+- [x] **Song library filtering (Section 9, chunk 1)** — SongListPage now loads tag options from `GET /api/songs/tags`, adds a tag filter alongside the existing search and key filters, preserves no-results messaging for filtered states, and includes focused plus full-suite test coverage; re-verified in the latest 1,457 passing tests across web, API, and script suites
+- [x] **Tempo visual blinker (Section 9, chunk 2)** — added a reusable metronome-style pulse indicator for BPM metadata across SongListPage, DashboardPage, SongViewPage, SharedSongPage, and PerformanceMode, with focused coverage plus a full web re-run; re-verified in the latest 1,457 passing tests across web, API, and script suites
+- [x] **Tempo range filter (Section 9, chunk 3)** — SongListPage now exposes minimum/maximum BPM filters backed by `tempoMin` / `tempoMax` song-list API query support, keeps filtered totals aligned with the active search criteria, and includes focused web plus API coverage along with full-suite validation; re-verified in the latest 1,457 passing tests across web, API, and script suites
+- [x] **Associated shout (Section 9, chunk 4)** — songs now support optional spoken cue/callout metadata in the schema, API create/update/share responses, SongEditPage, SongViewPage, and SharedSongPage, with focused web coverage plus full-suite validation; re-verified in the latest 1,457 passing tests across web, API, and script suites
+- [x] **AKA / alternate names (Section 9, chunk 5)** — songs now support optional alternate-title metadata in the schema, API create/update/share responses, SongEditPage, SongViewPage, SharedSongPage, and SongListPage, and song-library text search now matches alternate names with focused API plus web coverage and full-suite validation; re-verified in the latest 1,457 passing tests across web, API, and script suites
+- [x] **Sort options (Section 9, chunk 6)** — SongListPage now exposes sort modes for last edited, title, recently added, and most used, backed by API `sort` query support and focused web plus API coverage with full-suite validation; re-verified in the latest 1,457 passing tests across web, API, and script suites
+- [x] **Pagination (Section 9, chunk 7)** — SongListPage now uses API `limit` / `offset` support to render previous/next pagination controls, page counts, and visible-range summaries while resetting back to page 1 when filters or sort change; re-verified in the latest 1,457 passing tests across web, API, and script suites
+- [x] **Key-aware search (Section 9, chunk 8)** — SongListPage now carries the active key filter into SongViewPage links so charts open in the requested key with focused song-list, song-view, and renderer coverage plus full-suite validation; re-verified in the latest 1,457 passing tests across web, API, and script suites
+- [x] **Tag CRUD metadata coverage (Section 9, chunk 9)** — SongEditPage now has focused coverage for creating songs with tags, appending tags on edit, and clearing all tag pills back to an empty payload, completing the remaining metadata test gap for the song library; re-verified in the latest 1,457 passing tests across web, API, and script suites
+- [x] **Song categories (Section 9.2, chunk 10)** — songs now support optional category metadata end-to-end across the schema, shared model, API create/update/share responses, SongEditPage, SongListPage category filtering, and authenticated plus shared song views, with focused coverage and full web/API/script suite validation; re-verified in the latest 1,457 passing tests across web, API, and script suites
+- [x] **Song groups (Section 9.2, chunk 11)** — added reusable org-scoped song groups with `GET/POST/PUT/DELETE /api/songs/groups`, bulk membership management, song-library `groupId` filtering, SongListPage group filtering plus inline group management, and focused validation across 122 web tests plus 146 API tests covering the affected client, page, filter, and role-gating flows
+- [x] **Import / Export / Migration (Section 8, chunks 1–10)** — implemented `POST /api/songs/import/onsong` using shared `onSongToChordPro()` support for both `.onsong` plain-text files and OpenSong `.xml`; SongEditPage import picker now accepts `.onsong` and `.xml`; imported metadata (title, artist, key, tempo) is normalized into ChordPro directives before save; SongEditPage also now accepts multiple files and bulk imports ChordPro, `.chrd` / `.txt`, `.onsong`, OpenSong `.xml`, and PDF files with in-page progress and per-file result links; added preview-only conversion routes for `.chrd`, OnSong/OpenSong, and PDF so single-file imports now load into SongEditPage for rendered review before saving; added setlist zip export in ChordPro, OnSong, and plain text from SetlistViewPage via `/api/setlists/:id/export/zip`; added arbitrary multi-song library zip export from SongListPage via `/api/songs/export/zip` for selected songs in ChordPro, OnSong, and plain text; export endpoints now support `variationId` so the active variation can be exported as ChordPro, OnSong, or PDF from SongViewPage; added plain text `.txt` export via shared `chordProToPlainText()` and SongView export menu; extracted legacy `.chrd` parsing into shared `convertChrdToChordPro()` logic, reused it in the song import API, added `pnpm migrate:chrd` to batch-convert the documented `songList/` library into sibling `.chopro` files while preserving nested folders, preserve legacy `^` secondary chord lines as ChordPro comment lines during import and batch migration, and now emit `migration-report.json` plus `migration-report.txt` beside the converted library; re-verified across the latest suite passes with 1,457 passing tests across web, API, and script suites
+
+### Still Pending From This Pass
+
+- [ ] **Collaboration & Rehearsal (Section 7.2)** — comment threads on songs, rehearsal markers, rehearsal notes layer (requires new DB schema tables)
+- [ ] **Duplicate detection (Section 7.3)** — flag when a new song closely matches an existing one (title or lyrics similarity)
+- [ ] **Song library metadata & discovery follow-up (Section 9.2)** — delegated group management and non-public shared-song management
 
 ---
 

@@ -4,7 +4,7 @@ import { db } from "../../db.js";
 import { events, setlists } from "../../schema/index.js";
 import { createError, asyncHandler } from "../../middlewares/errorHandler.js";
 import { auth } from "../../middlewares/auth.js";
-import { orgContext, requireOrg } from "../../middlewares/orgContext.js";
+import { orgContext, requireOrg, requireOrgRole } from "../../middlewares/orgContext.js";
 
 export const eventRoutes = Router();
 
@@ -53,6 +53,7 @@ eventRoutes.get(
 // ── GET /api/events/:id — get single event ───────────────────
 eventRoutes.get(
   "/:id",
+  auth,
   asyncHandler(async (req, res) => {
     const [event] = await db
       .select({
@@ -83,8 +84,7 @@ eventRoutes.post(
   "/",
   auth,
   orgContext,
-  requireOrg,
-  asyncHandler(async (req, res) => {
+  requireOrg,  requireOrgRole("admin", "musician"),  asyncHandler(async (req, res) => {
     const { title, date, location, notes, setlistId } = req.body;
 
     if (!title || !date) {
@@ -111,8 +111,9 @@ eventRoutes.post(
 // ── PUT /api/events/:id — update event ──────────────────────
 eventRoutes.put(
   "/:id",
-  auth,
-  asyncHandler(async (req, res) => {
+  auth,  orgContext,
+  requireOrg,
+  requireOrgRole("admin", "musician"),  asyncHandler(async (req, res) => {
     const { title, date, location, notes, setlistId } = req.body;
 
     const [existing] = await db
@@ -143,8 +144,9 @@ eventRoutes.put(
 // ── DELETE /api/events/:id — delete event ────────────────────
 eventRoutes.delete(
   "/:id",
-  auth,
-  asyncHandler(async (req, res) => {
+  auth,  orgContext,
+  requireOrg,
+  requireOrgRole("admin", "musician"),  asyncHandler(async (req, res) => {
     const [existing] = await db
       .select({ id: events.id })
       .from(events)

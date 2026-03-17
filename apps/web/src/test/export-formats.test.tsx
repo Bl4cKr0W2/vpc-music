@@ -9,10 +9,16 @@ import * as path from "path";
 const mockGetSong = vi.fn();
 const mockExportChordPro = vi.fn();
 const mockExportOnSong = vi.fn();
+const mockExportText = vi.fn();
 const mockDeleteSong = vi.fn();
 const mockNavigate = vi.fn();
 const mockLogUsage = vi.fn();
 const mockListUsage = vi.fn();
+
+let mockAuthValue: any = {
+  user: { id: "u1", email: "admin@test.com", displayName: "Admin", role: "owner" },
+  activeOrg: { id: "org1", name: "Test Church", role: "admin" },
+};
 
 vi.mock("@/lib/api-client", () => ({
   songsApi: {
@@ -20,6 +26,7 @@ vi.mock("@/lib/api-client", () => ({
     delete: (...args: any[]) => mockDeleteSong(...args),
     exportChordPro: (...args: any[]) => mockExportChordPro(...args),
     exportOnSong: (...args: any[]) => mockExportOnSong(...args),
+    exportText: (...args: any[]) => mockExportText(...args),
     exportPdf: (id: string) => `/api/songs/${id}/export/pdf`,
   },
   shareApi: {
@@ -39,6 +46,7 @@ vi.mock("@/lib/api-client", () => ({
   variationsApi: {
     create: vi.fn(),
     update: vi.fn(),
+    setDefault: vi.fn(),
     delete: vi.fn(),
   },
   stickyNotesApi: {
@@ -61,6 +69,10 @@ vi.mock("sonner", () => ({
   toast: { success: vi.fn(), error: vi.fn() },
 }));
 
+vi.mock("@/contexts/AuthContext", () => ({
+  useAuth: () => mockAuthValue,
+}));
+
 vi.mock("@vpc-music/shared", () => ({
   ALL_KEYS: ["C", "D", "E", "F", "G", "A", "B"],
   parseChordPro: (input: string) => ({
@@ -79,9 +91,17 @@ const mockSong = {
   content: "[G]Amazing [C]grace\nHow sweet the [G]sound",
 };
 
-function renderPage(id = "song-1") {
+const mockVariation = {
+  id: "v1",
+  songId: "song-1",
+  name: "Acoustic",
+  key: "C",
+  content: "[C]Amazing [F]grace",
+};
+
+function renderPage(id = "song-1", variationId?: string) {
   return render(
-    <MemoryRouter initialEntries={[`/songs/${id}`]}>
+    <MemoryRouter initialEntries={[variationId ? `/songs/${id}?variation=${variationId}` : `/songs/${id}`]}>
       <Routes>
         <Route path="/songs/:id" element={<SongViewPage />} />
         <Route path="/songs/:id/edit" element={<div>Edit Page</div>} />
@@ -91,7 +111,7 @@ function renderPage(id = "song-1") {
   );
 }
 
-describe("Export OnSong / PDF", () => {
+describe("Export formats", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGetSong.mockResolvedValue({ song: mockSong, variations: [] });
@@ -114,13 +134,14 @@ describe("Export OnSong / PDF", () => {
       expect(screen.queryByText("ChordPro (.cho)")).not.toBeInTheDocument();
     });
 
-    it("clicking Export reveals three format options", async () => {
+    it("clicking Export reveals four format options", async () => {
       renderPage();
       await waitFor(() => screen.getByText("Amazing Grace"));
       const exportBtn = screen.getByText("Export", { exact: false });
       fireEvent.click(exportBtn);
       expect(screen.getByText("ChordPro (.cho)")).toBeInTheDocument();
       expect(screen.getByText("OnSong (.onsong)")).toBeInTheDocument();
+      expect(screen.getByText("Plain Text (.txt)")).toBeInTheDocument();
       expect(screen.getByText("PDF (print)")).toBeInTheDocument();
     });
 
@@ -144,6 +165,13 @@ describe("Export OnSong / PDF", () => {
       fireEvent.click(screen.getByText("Export", { exact: false }));
       expect(screen.getByText("PDF (print)")).toBeInTheDocument();
     });
+
+    it("dropdown contains plain text option", async () => {
+      renderPage();
+      await waitFor(() => screen.getByText("Amazing Grace"));
+      fireEvent.click(screen.getByText("Export", { exact: false }));
+      expect(screen.getByText("Plain Text (.txt)")).toBeInTheDocument();
+    });
   });
 
   // ===================== INTERACTIONS =====================
@@ -158,7 +186,7 @@ describe("Export OnSong / PDF", () => {
       fireEvent.click(screen.getByText("ChordPro (.cho)"));
 
       await waitFor(() => {
-        expect(mockExportChordPro).toHaveBeenCalledWith("song-1");
+        expect(mockExportChordPro).toHaveBeenCalledWith("song-1", undefined);
       });
     });
 
@@ -172,7 +200,7 @@ describe("Export OnSong / PDF", () => {
       fireEvent.click(screen.getByText("OnSong (.onsong)"));
 
       await waitFor(() => {
-        expect(mockExportOnSong).toHaveBeenCalledWith("song-1");
+        expect(mockExportOnSong).toHaveBeenCalledWith("song-1", undefined);
       });
     });
 
@@ -189,6 +217,35 @@ describe("Export OnSong / PDF", () => {
         "_blank",
       );
       openSpy.mockRestore();
+    });
+
+    it("clicking Plain Text calls exportText", async () => {
+      const mockBlob = new Blob(["test"], { type: "text/plain" });
+      mockExportText.mockResolvedValue({ blob: () => Promise.resolve(mockBlob) });
+      renderPage();
+      await waitFor(() => screen.getByText("Amazing Grace"));
+
+      fireEvent.click(screen.getByText("Export", { exact: false }));
+      fireEvent.click(screen.getByText("Plain Text (.txt)"));
+
+      await waitFor(() => {
+        expect(mockExportText).toHaveBeenCalledWith("song-1", undefined);
+      });
+    });
+
+    it("exports the active variation when one is selected", async () => {
+      const mockBlob = new Blob(["test"], { type: "text/plain" });
+      mockGetSong.mockResolvedValue({ song: mockSong, variations: [mockVariation] });
+      mockExportChordPro.mockResolvedValue({ blob: () => Promise.resolve(mockBlob) });
+      renderPage("song-1", "v1");
+      await waitFor(() => screen.getByText("Amazing Grace"));
+
+      fireEvent.click(screen.getByText("Export", { exact: false }));
+      fireEvent.click(screen.getByText("ChordPro (.cho)"));
+
+      await waitFor(() => {
+        expect(mockExportChordPro).toHaveBeenCalledWith("song-1", "v1");
+      });
     });
 
     it("export menu closes after ChordPro export", async () => {
@@ -240,6 +297,20 @@ describe("Export OnSong / PDF", () => {
 
       fireEvent.click(screen.getByText("Export", { exact: false }));
       fireEvent.click(screen.getByText("OnSong (.onsong)"));
+
+      await waitFor(() => {
+        expect(toast.error).toHaveBeenCalledWith("Export failed");
+      });
+    });
+
+    it("shows error toast when plain text export fails", async () => {
+      const { toast } = await import("sonner");
+      mockExportText.mockRejectedValue(new Error("Network error"));
+      renderPage();
+      await waitFor(() => screen.getByText("Amazing Grace"));
+
+      fireEvent.click(screen.getByText("Export", { exact: false }));
+      fireEvent.click(screen.getByText("Plain Text (.txt)"));
 
       await waitFor(() => {
         expect(toast.error).toHaveBeenCalledWith("Export failed");

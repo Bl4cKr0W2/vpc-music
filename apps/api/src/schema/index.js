@@ -2,6 +2,7 @@ export * from "./organizations.js";
 export * from "./organizationMembers.js";
 export * from "./users.js";
 export * from "./songs.js";
+export * from "./songGroups.js";
 export * from "./setlists.js";
 export * from "./events.js";
 export * from "./passwordResetTokens.js";

@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useCallback, forwardRef, useImperativeHand
 interface ChordProRendererProps {
   content: string;
   songKey?: string | null;
+  baseTranspose?: number;
   showChords?: boolean;
   nashville?: boolean;
   fontSize?: number;
@@ -23,20 +24,26 @@ export interface ChordProRendererHandle {
 export const ChordProRenderer = forwardRef<ChordProRendererHandle, ChordProRendererProps>(function ChordProRenderer({
   content,
   songKey,
+  baseTranspose = 0,
   showChords = true,
   nashville = false,
   fontSize = 16,
   onTranspose,
 }, ref) {
-  const [transpose, setTranspose] = useState(0);
+  const [manualTranspose, setManualTranspose] = useState(0);
+  const transpose = baseTranspose + manualTranspose;
+
+  useEffect(() => {
+    setManualTranspose(0);
+  }, [baseTranspose, content, songKey]);
 
   // Apply transposition to raw ChordPro, then parse
   const transposedContent = transpose !== 0 ? transposeChordPro(content, transpose) : content;
   const doc = parseChordPro(transposedContent);
 
-  const handleUp = () => setTranspose((t) => t + 1);
-  const handleDown = () => setTranspose((t) => t - 1);
-  const handleReset = () => setTranspose(0);
+  const handleUp = () => setManualTranspose((t) => t + 1);
+  const handleDown = () => setManualTranspose((t) => t - 1);
+  const handleReset = () => setManualTranspose(0);
 
   useImperativeHandle(ref, () => ({
     transposeUp: handleUp,
@@ -65,7 +72,7 @@ export const ChordProRenderer = forwardRef<ChordProRendererHandle, ChordProRende
           >
             +
           </button>
-          {transpose !== 0 && (
+          {manualTranspose !== 0 && (
             <button
               onClick={handleReset}
               className="text-xs text-[hsl(var(--secondary))] hover:underline"

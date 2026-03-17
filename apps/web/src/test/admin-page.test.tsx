@@ -131,6 +131,7 @@ describe("AdminPage", () => {
       renderPage();
       const selects = screen.getAllByDisplayValue("Musician");
       expect(selects.length).toBeGreaterThan(0);
+      expect(screen.getByRole("option", { name: "Worship Leader" })).toBeInTheDocument();
     });
 
     it("loads and displays members", async () => {
@@ -139,6 +140,7 @@ describe("AdminPage", () => {
         expect(screen.getByText("Admin User")).toBeInTheDocument();
         expect(screen.getByText("Band Member")).toBeInTheDocument();
         expect(screen.getByText("New Person")).toBeInTheDocument();
+        expect(screen.getAllByText("Worship Leader").length).toBeGreaterThan(0);
       });
     });
 
@@ -294,6 +296,7 @@ describe("AdminPage", () => {
 
       await waitFor(() => {
         expect(mockUpdateRole).toHaveBeenCalledWith("u2", "admin");
+        expect(screen.getAllByDisplayValue("Worship Leader").length).toBeGreaterThan(0);
       });
     });
 

@@ -6,6 +6,7 @@ import { ChordProEditor } from "@/components/songs/ChordProEditor";
 // ---------- Mocks ----------
 vi.mock("@vpc-music/shared", () => ({
   CHORD_REGEX: /^[A-G][b#]?(?:m|min|maj|dim|aug|sus[24]?|add)?[2-9]?(?:\/[A-G][b#]?)?$/,
+  transposeChord: (chord: string, _steps: number) => `${chord}#`,
 }));
 
 function renderEditor(
@@ -62,12 +63,12 @@ describe("ChordProEditor", () => {
       expect(screen.getByTestId("section-dropdown")).toBeInTheDocument();
     });
 
-    it("shows all 17 section options", async () => {
+    it("shows all 19 section/insert options", async () => {
       renderEditor();
       const user = userEvent.setup();
       await user.click(screen.getByTestId("section-insert-btn"));
       const options = screen.getByTestId("section-dropdown").querySelectorAll("button");
-      expect(options).toHaveLength(17);
+      expect(options).toHaveLength(19);
     });
 
     it("lists expected section labels", async () => {
@@ -393,6 +394,98 @@ describe("ChordProEditor", () => {
     it("has 20 rows by default", () => {
       renderEditor();
       expect(screen.getByTestId("chordpro-editor")).toHaveAttribute("rows", "20");
+    });
+  });
+
+  // ===================== Keyboard shortcuts =====================
+
+  describe("keyboard shortcuts", () => {
+    it("calls onSave on Ctrl+S", () => {
+      const onSave = vi.fn();
+      renderEditor({ value: "test", onSave });
+      const editor = screen.getByTestId("chordpro-editor");
+      fireEvent.keyDown(editor, { key: "s", ctrlKey: true });
+      expect(onSave).toHaveBeenCalledTimes(1);
+    });
+
+    it("inserts [] at cursor on Ctrl+K with no selection", () => {
+      const onChange = vi.fn();
+      renderEditor({ value: "Hello world", onChange });
+      const editor = screen.getByTestId("chordpro-editor") as HTMLTextAreaElement;
+      editor.setSelectionRange(5, 5);
+      fireEvent.keyDown(editor, { key: "k", ctrlKey: true });
+      expect(onChange).toHaveBeenCalledWith("Hello[] world");
+    });
+
+    it("toggles comment on Ctrl+/", () => {
+      const onChange = vi.fn();
+      renderEditor({ value: "Verse 1", onChange });
+      const editor = screen.getByTestId("chordpro-editor") as HTMLTextAreaElement;
+      editor.setSelectionRange(0, 7);
+      fireEvent.keyDown(editor, { key: "/", ctrlKey: true });
+      expect(onChange).toHaveBeenCalledWith("{comment: Verse 1}");
+    });
+
+    it("unwraps comment on Ctrl+/ when already commented", () => {
+      const onChange = vi.fn();
+      renderEditor({ value: "{comment: Verse 1}", onChange });
+      const editor = screen.getByTestId("chordpro-editor") as HTMLTextAreaElement;
+      editor.setSelectionRange(0, 18);
+      fireEvent.keyDown(editor, { key: "/", ctrlKey: true });
+      expect(onChange).toHaveBeenCalledWith("Verse 1");
+    });
+
+    it("inserts Verse on Ctrl+Shift+V", () => {
+      const onChange = vi.fn();
+      renderEditor({ value: "", onChange });
+      const editor = screen.getByTestId("chordpro-editor");
+      fireEvent.keyDown(editor, { key: "V", ctrlKey: true, shiftKey: true });
+      expect(onChange).toHaveBeenCalledWith(expect.stringContaining("{comment: Verse}"));
+    });
+
+    it("inserts Chorus on Ctrl+Shift+C", () => {
+      const onChange = vi.fn();
+      renderEditor({ value: "", onChange });
+      const editor = screen.getByTestId("chordpro-editor");
+      fireEvent.keyDown(editor, { key: "C", ctrlKey: true, shiftKey: true });
+      expect(onChange).toHaveBeenCalledWith(expect.stringContaining("{comment: Chorus}"));
+    });
+
+    it("inserts Bridge on Ctrl+Shift+B", () => {
+      const onChange = vi.fn();
+      renderEditor({ value: "", onChange });
+      const editor = screen.getByTestId("chordpro-editor");
+      fireEvent.keyDown(editor, { key: "B", ctrlKey: true, shiftKey: true });
+      expect(onChange).toHaveBeenCalledWith(expect.stringContaining("{comment: Bridge}"));
+    });
+
+    it("transposes chords up on Alt+Up", () => {
+      const onChange = vi.fn();
+      renderEditor({ value: "[G]Amazing", onChange });
+      const editor = screen.getByTestId("chordpro-editor") as HTMLTextAreaElement;
+      editor.setSelectionRange(0, 10);
+      fireEvent.keyDown(editor, { key: "ArrowUp", altKey: true });
+      // transposeChord mock returns same chord, but onChange should still be called
+      // with the replace result from the mock (identity function)
+      expect(onChange).toHaveBeenCalled();
+    });
+
+    it("transposes chords down on Alt+Down", () => {
+      const onChange = vi.fn();
+      renderEditor({ value: "[G]Amazing", onChange });
+      const editor = screen.getByTestId("chordpro-editor") as HTMLTextAreaElement;
+      editor.setSelectionRange(0, 10);
+      fireEvent.keyDown(editor, { key: "ArrowDown", altKey: true });
+      expect(onChange).toHaveBeenCalled();
+    });
+  });
+
+  // ===================== Syntax overlay =====================
+
+  describe("syntax overlay", () => {
+    it("renders syntax overlay", () => {
+      renderEditor({ value: "[G]Test" });
+      expect(screen.getByTestId("syntax-overlay")).toBeInTheDocument();
     });
   });
 

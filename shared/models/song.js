@@ -3,6 +3,7 @@ import { z } from "zod";
 export const songSchema = z.object({
   id: z.string().uuid().optional(),
   title: z.string().min(1, "Title is required"),
+  category: z.string().optional(),
   key: z.string().optional(),
   tempo: z.number().int().positive().optional(),
   artist: z.string().optional(),

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, act, fireEvent } from "@testing-library/react";
 import { ChordProRenderer, AutoScroll } from "@/components/songs/ChordProRenderer";
 import { createRef } from "react";
@@ -233,6 +233,12 @@ describe("ChordProRenderer", () => {
     it("shows original key when songKey provided", () => {
       render(<ChordProRenderer content="test" songKey="G" />);
       expect(screen.getByText(/Original key: G/)).toBeInTheDocument();
+    });
+
+    it("applies base transpose before rendering", () => {
+      render(<ChordProRenderer content="test" songKey="G" baseTranspose={2} />);
+      expect(mockTransposeChordPro).toHaveBeenCalledWith("test", 2);
+      expect(screen.getByText("+2")).toBeInTheDocument();
     });
 
     it("does not show key indicator when songKey is null", () => {

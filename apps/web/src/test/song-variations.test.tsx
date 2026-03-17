@@ -10,6 +10,11 @@ const mockVariationUpdate = vi.fn();
 const mockVariationDelete = vi.fn();
 const mockNavigate = vi.fn();
 
+let mockAuthValue: any = {
+  user: { id: "u1", email: "admin@test.com", displayName: "Admin", role: "owner" },
+  activeOrg: { id: "org1", name: "Test Church", role: "admin" },
+};
+
 vi.mock("@/lib/api-client", () => ({
   songsApi: {
     get: (...args: any[]) => mockGet(...args),
@@ -34,6 +39,7 @@ vi.mock("@/lib/api-client", () => ({
   variationsApi: {
     create: (...args: any[]) => mockVariationCreate(...args),
     update: (...args: any[]) => mockVariationUpdate(...args),
+    setDefault: vi.fn(),
     delete: (...args: any[]) => mockVariationDelete(...args),
   },
   stickyNotesApi: {
@@ -51,6 +57,10 @@ vi.mock("react-router-dom", async () => {
 
 vi.mock("sonner", () => ({
   toast: { success: vi.fn(), error: vi.fn() },
+}));
+
+vi.mock("@/contexts/AuthContext", () => ({
+  useAuth: () => mockAuthValue,
 }));
 
 vi.mock("@vpc-music/shared", () => ({
@@ -103,7 +113,7 @@ describe("Song Variations", () => {
       mockGet.mockResolvedValue({ song: baseSong, variations: mockVariations });
       renderPage();
       await waitFor(() => {
-        expect(screen.getByText("Original")).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: /original/i })).toBeInTheDocument();
         expect(screen.getByText("Acoustic")).toBeInTheDocument();
         expect(screen.getByText("Electric")).toBeInTheDocument();
       });
@@ -113,8 +123,8 @@ describe("Song Variations", () => {
       mockGet.mockResolvedValue({ song: baseSong, variations: mockVariations });
       renderPage();
       await waitFor(() => {
-        const btn = screen.getByText("Original");
-        expect(btn.className).toContain("bg-[hsl(var(--secondary))]");
+        const btn = screen.getByRole("button", { name: /original/i });
+        expect(btn.className).toContain("btn-primary");
       });
     });
 
@@ -201,7 +211,7 @@ describe("Song Variations", () => {
       });
 
       fireEvent.click(screen.getByText("Acoustic"));
-      fireEvent.click(screen.getByText("Original"));
+      fireEvent.click(screen.getByRole("button", { name: /original/i }));
 
       await waitFor(() => {
         expect(screen.getByTestId("chordpro-renderer")).toHaveTextContent("[G]Amazing grace");

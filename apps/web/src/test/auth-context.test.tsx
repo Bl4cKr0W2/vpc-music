@@ -137,7 +137,9 @@ describe("AuthContext", () => {
       await waitFor(() =>
         expect(screen.getByTestId("authenticated").textContent).toBe("true"),
       );
-      expect(mockSetActiveOrganizationId).toHaveBeenCalledWith("org-1");
+      await waitFor(() => {
+        expect(mockSetActiveOrganizationId).toHaveBeenCalledWith("org-1");
+      });
     });
 
     it("syncs null when no active org", async () => {

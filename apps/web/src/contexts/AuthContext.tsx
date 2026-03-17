@@ -8,6 +8,8 @@ import {
 } from "react";
 import { authApi, setActiveOrganizationId } from "@/lib/api-client";
 
+const ORG_STORAGE_KEY = "vpc-music-active-org-id";
+
 export interface OrgMembership {
   id: string;
   name: string;
@@ -26,8 +28,10 @@ interface AuthContextValue {
   user: User | null;
   isAuthenticated: boolean;
   isLoading: boolean;
-  /** The active org (first/only org, or selected org) */
+  /** The active org (persisted selection, or first org, or null) */
   activeOrg: OrgMembership | null;
+  /** Switch the active org by ID */
+  switchOrg: (orgId: string) => void;
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string, displayName?: string) => Promise<void>;
   logout: () => Promise<void>;
@@ -37,17 +41,45 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
+/** Resolve the active org from localStorage or fall back to the first org */
+function resolveActiveOrg(orgs: OrgMembership[] | undefined): OrgMembership | null {
+  if (!orgs || orgs.length === 0) return null;
+
+  const savedId = localStorage.getItem(ORG_STORAGE_KEY);
+  if (savedId) {
+    const match = orgs.find((o) => o.id === savedId);
+    if (match) return match;
+  }
+  return orgs[0];
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [selectedOrgId, setSelectedOrgId] = useState<string | null>(
+    () => localStorage.getItem(ORG_STORAGE_KEY),
+  );
 
-  // Derive active org: auto-select first/only org
-  const activeOrg: OrgMembership | null = user?.organizations?.[0] ?? null;
+  // Derive active org
+  const activeOrg: OrgMembership | null = (() => {
+    const orgs = user?.organizations;
+    if (!orgs || orgs.length === 0) return null;
+    if (selectedOrgId) {
+      const match = orgs.find((o) => o.id === selectedOrgId);
+      if (match) return match;
+    }
+    return orgs[0];
+  })();
 
   // Keep api-client in sync with active org
   useEffect(() => {
     setActiveOrganizationId(activeOrg?.id ?? null);
   }, [activeOrg?.id]);
+
+  const switchOrg = useCallback((orgId: string) => {
+    localStorage.setItem(ORG_STORAGE_KEY, orgId);
+    setSelectedOrgId(orgId);
+  }, []);
 
   // On mount, try to restore session from cookie
   const refreshUser = useCallback(async () => {
@@ -81,6 +113,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = useCallback(async () => {
     await authApi.logout();
     setUser(null);
+    localStorage.removeItem(ORG_STORAGE_KEY);
+    setSelectedOrgId(null);
   }, []);
 
   return (
@@ -90,6 +124,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isAuthenticated: !!user,
         isLoading,
         activeOrg,
+        switchOrg,
         login,
         register,
         logout,

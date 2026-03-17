@@ -4,7 +4,7 @@ import { db } from "../../db.js";
 import { stickyNotes, songs } from "../../schema/index.js";
 import { createError, asyncHandler } from "../../middlewares/errorHandler.js";
 import { auth } from "../../middlewares/auth.js";
-import { orgContext } from "../../middlewares/orgContext.js";
+import { orgContext, requireOrg, requireOrgRole } from "../../middlewares/orgContext.js";
 
 export const stickyNoteRoutes = Router();
 
@@ -34,6 +34,8 @@ stickyNoteRoutes.post(
   "/:songId/notes",
   auth,
   orgContext,
+  requireOrg,
+  requireOrgRole("admin", "musician"),
   asyncHandler(async (req, res) => {
     const { content, color } = req.body;
 
@@ -71,6 +73,9 @@ stickyNoteRoutes.post(
 stickyNoteRoutes.put(
   "/:songId/notes/:noteId",
   auth,
+  orgContext,
+  requireOrg,
+  requireOrgRole("admin", "musician"),
   asyncHandler(async (req, res) => {
     const { content, color } = req.body;
 
@@ -107,6 +112,9 @@ stickyNoteRoutes.put(
 stickyNoteRoutes.delete(
   "/:songId/notes/:noteId",
   auth,
+  orgContext,
+  requireOrg,
+  requireOrgRole("admin", "musician"),
   asyncHandler(async (req, res) => {
     const [existing] = await db
       .select()

@@ -34,6 +34,17 @@
   --radius-lg: 0.5rem;
   --radius-md: calc(var(--radius-lg) - 2px);
   --radius-sm: calc(var(--radius-lg) - 4px);
+
+  /* -- Shadows ------------------------------------------------- */
+  --shadow-card: 0 1px 3px 0 rgb(0 0 0 / 0.06), 0 1px 2px -1px rgb(0 0 0 / 0.06);
+  --shadow-card-hover: 0 4px 12px -2px rgb(0 0 0 / 0.10), 0 2px 6px -2px rgb(0 0 0 / 0.06);
+  --shadow-dropdown: 0 10px 25px -5px rgb(0 0 0 / 0.12), 0 4px 10px -5px rgb(0 0 0 / 0.06);
+  --shadow-modal: 0 20px 50px -12px rgb(0 0 0 / 0.25);
+
+  /* -- Transition durations ------------------------------------ */
+  --duration-fast: 150ms;
+  --duration-normal: 200ms;
+  --duration-slow: 300ms;
 }
 
 /* ── Light mode (default) ─────────────────────────────────────── */
@@ -188,6 +199,298 @@
 
   .bg-dark-blue {
     background-color: hsl(235 100% 10%);
+  }
+}
+
+/* ── Reusable component classes ──────────────────────────────── */
+@layer components {
+  .tempo-indicator {
+    @apply inline-flex items-center gap-2 whitespace-nowrap;
+  }
+
+  .tempo-indicator__pulse {
+    @apply inline-block h-2.5 w-2.5 shrink-0 rounded-full bg-[hsl(var(--secondary))];
+    animation-name: tempo-indicator-beat;
+    animation-timing-function: ease-in-out;
+    animation-iteration-count: infinite;
+    box-shadow: 0 0 0 0 hsl(var(--secondary) / 0.35);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .tempo-indicator__pulse {
+      animation: none;
+    }
+  }
+
+  @keyframes tempo-indicator-beat {
+    0%,
+    100% {
+      opacity: 0.45;
+      transform: scale(0.8);
+      box-shadow: 0 0 0 0 hsl(var(--secondary) / 0);
+    }
+
+    30% {
+      opacity: 1;
+      transform: scale(1.15);
+      box-shadow: 0 0 0 0.35rem hsl(var(--secondary) / 0.22);
+    }
+
+    60% {
+      opacity: 0.65;
+      transform: scale(0.9);
+      box-shadow: 0 0 0 0.1rem hsl(var(--secondary) / 0.12);
+    }
+  }
+
+  /* ── Buttons ──────────────────────────────────────────────── */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-medium transition-all;
+    transition-duration: var(--duration-normal);
+  }
+
+  .btn:focus-visible {
+    @apply outline-none ring-2 ring-offset-2;
+    ring-color: hsl(var(--ring));
+    ring-offset-color: hsl(var(--background));
+  }
+
+  .btn:disabled {
+    @apply opacity-50 pointer-events-none;
+  }
+
+  .btn-primary {
+    @apply btn;
+    background-color: hsl(var(--secondary));
+    color: hsl(var(--secondary-foreground));
+  }
+  .btn-primary:hover {
+    filter: brightness(1.1);
+    box-shadow: var(--shadow-card);
+  }
+  .btn-primary:active {
+    filter: brightness(0.95);
+  }
+
+  .btn-outline {
+    @apply btn;
+    border: 1px solid hsl(var(--border));
+    color: hsl(var(--foreground));
+    background-color: transparent;
+  }
+  .btn-outline:hover {
+    background-color: hsl(var(--muted));
+  }
+  .btn-outline:active {
+    background-color: hsl(var(--muted) / 0.8);
+  }
+
+  .btn-ghost {
+    @apply btn;
+    color: hsl(var(--muted-foreground));
+    background-color: transparent;
+  }
+  .btn-ghost:hover {
+    color: hsl(var(--foreground));
+    background-color: hsl(var(--muted));
+  }
+
+  .btn-destructive {
+    @apply btn;
+    border: 1px solid hsl(var(--destructive));
+    color: hsl(var(--destructive));
+    background-color: transparent;
+  }
+  .btn-destructive:hover {
+    background-color: hsl(var(--destructive));
+    color: hsl(var(--destructive-foreground));
+  }
+
+  .btn-success {
+    @apply btn;
+    @apply bg-green-600 text-white;
+  }
+  .btn-success:hover {
+    @apply bg-green-700;
+  }
+
+  .btn-sm {
+    @apply px-3 py-1.5 text-xs;
+  }
+
+  .btn-xs {
+    @apply px-2 py-1 text-xs;
+  }
+
+  .btn-icon {
+    @apply p-1.5;
+  }
+
+  /* ── Inputs & Selects ─────────────────────────────────────── */
+  .input {
+    @apply w-full rounded-md border px-3 py-2 text-sm transition-colors;
+    border-color: hsl(var(--input));
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    transition-duration: var(--duration-fast);
+  }
+  .input::placeholder {
+    color: hsl(var(--muted-foreground));
+  }
+  .input:focus-visible {
+    @apply outline-none ring-2;
+    ring-color: hsl(var(--ring));
+  }
+  .input:disabled {
+    @apply opacity-50;
+  }
+
+  .select {
+    @apply input;
+    @apply appearance-auto;
+  }
+
+  /* ── Cards ────────────────────────────────────────────────── */
+  .card {
+    @apply rounded-lg border;
+    border-color: hsl(var(--border));
+    background-color: hsl(var(--card));
+    box-shadow: var(--shadow-card);
+    transition: box-shadow var(--duration-normal) ease, border-color var(--duration-normal) ease;
+  }
+
+  .card-interactive {
+    @apply card cursor-pointer;
+  }
+  .card-interactive:hover {
+    border-color: hsl(var(--secondary));
+    box-shadow: var(--shadow-card-hover);
+  }
+
+  .card-body {
+    @apply p-4;
+  }
+
+  .card-body-lg {
+    @apply p-6;
+  }
+
+  /* Dashed empty state card */
+  .card-empty {
+    @apply rounded-lg border border-dashed p-12 text-center;
+    border-color: hsl(var(--border));
+  }
+
+  /* ── Badges ───────────────────────────────────────────────── */
+  .badge {
+    @apply inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium leading-tight;
+  }
+
+  .badge-muted {
+    @apply badge;
+    background-color: hsl(var(--muted));
+    color: hsl(var(--muted-foreground));
+  }
+
+  .badge-success {
+    @apply badge;
+    @apply bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400;
+  }
+
+  .badge-warning {
+    @apply badge;
+    @apply bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400;
+  }
+
+  .badge-key {
+    @apply rounded px-2 py-0.5 text-xs;
+    background-color: hsl(var(--muted));
+    color: hsl(var(--foreground));
+  }
+
+  /* ── Modal / Overlay ──────────────────────────────────────── */
+  .modal-backdrop {
+    @apply fixed inset-0 z-50 flex items-center justify-center;
+    background-color: rgb(0 0 0 / 0.5);
+  }
+
+  .modal-content {
+    @apply w-full rounded-lg border p-6;
+    border-color: hsl(var(--border));
+    background-color: hsl(var(--card));
+    box-shadow: var(--shadow-modal);
+  }
+
+  /* ── Section headers ──────────────────────────────────────── */
+  .section-header {
+    @apply flex items-center justify-between;
+  }
+
+  .section-title {
+    @apply text-lg font-brand flex items-center gap-2;
+    color: hsl(var(--foreground));
+  }
+
+  .section-title-icon {
+    @apply h-5 w-5;
+    color: hsl(var(--secondary));
+  }
+
+  /* ── Page header ──────────────────────────────────────────── */
+  .page-header {
+    @apply flex items-center justify-between;
+  }
+
+  .page-title {
+    @apply text-2xl font-brand;
+    color: hsl(var(--foreground));
+  }
+
+  /* ── List items ───────────────────────────────────────────── */
+  .list-container {
+    @apply divide-y rounded-lg border;
+    divide-color: hsl(var(--border));
+    border-color: hsl(var(--border));
+    background-color: hsl(var(--card));
+    box-shadow: var(--shadow-card);
+  }
+
+  .list-item {
+    @apply flex items-center justify-between p-4 transition-colors;
+    transition-duration: var(--duration-fast);
+  }
+  .list-item:hover {
+    background-color: hsl(var(--muted));
+  }
+
+  /* ── Glass effect for header ──────────────────────────────── */
+  .glass {
+    @apply backdrop-blur-md;
+    background-color: hsl(var(--card) / 0.85);
+  }
+
+  /* ── Links ────────────────────────────────────────────────── */
+  .link-muted {
+    @apply text-sm transition-colors;
+    color: hsl(var(--muted-foreground));
+  }
+  .link-muted:hover {
+    color: hsl(var(--foreground));
+  }
+
+  .link-accent {
+    @apply text-sm;
+    color: hsl(var(--secondary));
+  }
+  .link-accent:hover {
+    @apply underline;
+  }
+
+  /* ── Spinner ──────────────────────────────────────────────── */
+  .spinner {
+    @apply h-8 w-8 animate-spin rounded-full border-4;
+    border-color: hsl(var(--muted));
+    border-top-color: hsl(var(--secondary));
   }
 }
 

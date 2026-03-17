@@ -55,13 +55,6 @@ describe("openOAuthPopup", () => {
 
   describe("postMessage handling", () => {
     it("resolves on VPC_OAUTH_CALLBACK message from same origin", async () => {
-      const resultData: OAuthResult = {
-        success: true,
-        type: "VPC_OAUTH_CALLBACK" as any,
-        token: "jwt-token",
-        user: { id: "u-1" },
-      };
-
       const promise = openOAuthPopup("google");
 
       // Simulate postMessage from same origin

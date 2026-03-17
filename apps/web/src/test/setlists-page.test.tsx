@@ -30,6 +30,14 @@ vi.mock("sonner", () => ({
   toast: { success: vi.fn(), error: vi.fn() },
 }));
 
+let mockAuthValue: any = {
+  user: { id: "u1", email: "test@test.com", displayName: "Test", role: "owner" },
+  activeOrg: { id: "org1", name: "Test Church", role: "admin" },
+};
+vi.mock("@/contexts/AuthContext", () => ({
+  useAuth: () => mockAuthValue,
+}));
+
 function renderPage() {
   return render(
     <MemoryRouter initialEntries={["/setlists"]}>
@@ -128,7 +136,7 @@ describe("SetlistsPage", () => {
     it("shows loading state", () => {
       mockList.mockReturnValue(new Promise(() => {}));
       renderPage();
-      expect(screen.getByText("Loading...")).toBeInTheDocument();
+      expect(document.querySelector(".spinner")).toBeInTheDocument();
     });
 
     it("handles API error gracefully", async () => {

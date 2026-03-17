@@ -4,12 +4,14 @@ import {
   songVariationSchema,
   ROLES,
   ROLE_LABELS,
+  roleLabel,
   CHROMATIC_SHARP,
   CHROMATIC_FLAT,
   ALL_KEYS,
   NASHVILLE_NUMBERS,
   CHORD_REGEX,
   SECTION_KEYWORDS,
+  convertChrdToChordPro,
 } from "@vpc-music/shared";
 
 // ── songSchema ──────────────────────────────────
@@ -154,18 +156,30 @@ describe("songVariationSchema", () => {
 
 // ── Role constants ──────────────────────────────
 describe("ROLES", () => {
-  it("exports viewer, editor, admin roles", () => {
-    expect(ROLES.VIEWER).toBe("viewer");
-    expect(ROLES.EDITOR).toBe("editor");
+  it("exports observer, musician, admin roles", () => {
+    expect(ROLES.OBSERVER).toBe("observer");
+    expect(ROLES.MUSICIAN).toBe("musician");
     expect(ROLES.ADMIN).toBe("admin");
   });
 });
 
 describe("ROLE_LABELS", () => {
   it("has labels for all roles", () => {
-    expect(ROLE_LABELS.viewer).toBe("Viewer");
-    expect(ROLE_LABELS.editor).toBe("Editor");
-    expect(ROLE_LABELS.admin).toBe("Admin");
+    expect(ROLE_LABELS.observer).toBe("Observer");
+    expect(ROLE_LABELS.musician).toBe("Musician");
+    expect(ROLE_LABELS.admin).toBe("Worship Leader");
+  });
+});
+
+describe("roleLabel", () => {
+  it("returns the human-readable label for known roles", () => {
+    expect(roleLabel("admin")).toBe("Worship Leader");
+    expect(roleLabel("musician")).toBe("Musician");
+    expect(roleLabel("observer")).toBe("Observer");
+  });
+
+  it("capitalises unknown roles as fallback", () => {
+    expect(roleLabel("superuser")).toBe("Superuser");
   });
 });
 
@@ -217,5 +231,58 @@ describe("Music constants", () => {
     expect(SECTION_KEYWORDS).toContain("Intro");
     expect(SECTION_KEYWORDS).toContain("Outro");
     expect(SECTION_KEYWORDS).toContain("Pre-Chorus");
+  });
+});
+
+// ── Legacy .chrd conversion ─────────────────────
+describe("convertChrdToChordPro", () => {
+  it("converts prefix-based legacy content into ChordPro", () => {
+    const input = [
+      "Amazing Grace",
+      "G",
+      "Author: John Newton",
+      "Year: 1779",
+      "",
+      "Verse 1",
+      "#G       C",
+      "@Amazing grace",
+      "*Slowly",
+    ].join("\n");
+
+    const result = convertChrdToChordPro("amazing-grace.chrd", input);
+
+    expect(result.metadata.title).toBe("Amazing Grace");
+    expect(result.metadata.key).toBe("G");
+    expect(result.metadata.artist).toBe("John Newton");
+    expect(result.metadata.year).toBe("1779");
+    expect(result.chordProContent).toContain("{title: Amazing Grace}");
+    expect(result.chordProContent).toContain("{key: G}");
+    expect(result.chordProContent).toContain("{artist: John Newton}");
+    expect(result.chordProContent).toContain("{year: 1779}");
+    expect(result.chordProContent).toContain("{comment: Verse 1}");
+    expect(result.chordProContent).toContain("[G]Amazing [C]grace");
+    expect(result.chordProContent).toContain("{comment: Slowly}");
+  });
+
+  it("preserves secondary chord lines as ChordPro comments", () => {
+    const input = [
+      "~Draft Song",
+      "C",
+      "",
+      "Verse",
+      "#C      F",
+      "^Am     G",
+      "@Sing to the Lord",
+    ].join("\n");
+
+    const result = convertChrdToChordPro("~draft-song.chrd", input);
+
+    expect(result.metadata.title).toBe("Draft Song");
+    expect(result.metadata.isDraft).toBe(true);
+  expect(result.warnings).toHaveLength(0);
+  expect(result.chordProContent).toContain("{comment: Secondary chords: Am     G}");
+    expect(result.chordProContent).toContain("[C]Sing");
+    expect(result.chordProContent).toContain("[F]");
+    expect(result.chordProContent).toContain("the Lord");
   });
 });

@@ -71,6 +71,13 @@ vi.mock("@vpc-music/shared", () => ({
   ALL_KEYS: ["C", "D", "E", "F", "G", "A", "B"],
 }));
 
+vi.mock("@/contexts/AuthContext", () => ({
+  useAuth: () => ({
+    user: { id: "u1", email: "test@test.com", displayName: "Test", role: "owner" },
+    activeOrg: { id: "org1", name: "Test Church", role: "admin" },
+  }),
+}));
+
 // ---------- Setup ----------
 const mockSetlist = { id: "sl-1", name: "Sunday Service", status: "draft", category: "worship", notes: "" };
 const mockSongs = [

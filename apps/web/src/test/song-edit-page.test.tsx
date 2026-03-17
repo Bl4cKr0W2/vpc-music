@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import { SongEditPage } from "@/pages/songs/SongEditPage";
 
 // ---------- Mocks ----------
@@ -10,6 +10,12 @@ const mockCreate = vi.fn();
 const mockUpdate = vi.fn();
 const mockVariationUpdate = vi.fn();
 const mockNavigate = vi.fn();
+const mockImportChrd = vi.fn();
+const mockPreviewImportChrd = vi.fn();
+const mockImportOnSong = vi.fn();
+const mockPreviewImportOnSong = vi.fn();
+const mockImportPdf = vi.fn();
+const mockPreviewImportPdf = vi.fn();
 
 vi.mock("@/lib/api-client", () => ({
   songsApi: {
@@ -17,12 +23,24 @@ vi.mock("@/lib/api-client", () => ({
     create: (...args: any[]) => mockCreate(...args),
     update: (...args: any[]) => mockUpdate(...args),
     getTags: () => Promise.resolve({ tags: ["worship", "hymn", "contemporary"] }),
-    importChrd: vi.fn(),
-    importPdf: vi.fn(),
+    importChrd: (...args: any[]) => mockImportChrd(...args),
+    previewImportChrd: (...args: any[]) => mockPreviewImportChrd(...args),
+    importOnSong: (...args: any[]) => mockImportOnSong(...args),
+    previewImportOnSong: (...args: any[]) => mockPreviewImportOnSong(...args),
+    importPdf: (...args: any[]) => mockImportPdf(...args),
+    previewImportPdf: (...args: any[]) => mockPreviewImportPdf(...args),
   },
   variationsApi: {
     update: (...args: any[]) => mockVariationUpdate(...args),
   },
+}));
+
+vi.mock("@/components/songs/ChordProRenderer", () => ({
+  ChordProRenderer: ({ content, songKey }: { content: string; songKey?: string }) => (
+    <div data-testid="import-preview-renderer">
+      preview:{content}::{songKey || ""}
+    </div>
+  ),
 }));
 
 vi.mock("react-router-dom", async () => {
@@ -34,48 +52,95 @@ vi.mock("react-router-dom", async () => {
 });
 
 vi.mock("sonner", () => ({
-  toast: { success: vi.fn(), error: vi.fn() },
+  toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() },
 }));
 
 vi.mock("@vpc-music/shared", () => ({
   ALL_KEYS: ["C", "D", "E", "F", "G", "A", "B"],
   CHORD_REGEX: /^[A-G][b#]?(?:m|min|maj|dim|aug|sus[24]?|add)?[0-9]?(?:\/[A-G][b#]?)?$/,
   PRESET_TAGS: ["worship", "praise", "hymn", "classic", "contemporary"],
+  parseChordPro: (input: string) => ({
+    directives: {
+      ...(input.match(/\{title:\s*(.*?)\}/i)?.[1] ? { title: input.match(/\{title:\s*(.*?)\}/i)?.[1] } : {}),
+      ...(input.match(/\{key:\s*(.*?)\}/i)?.[1] ? { key: input.match(/\{key:\s*(.*?)\}/i)?.[1] } : {}),
+      ...(input.match(/\{artist:\s*(.*?)\}/i)?.[1] ? { artist: input.match(/\{artist:\s*(.*?)\}/i)?.[1] } : {}),
+      ...(input.match(/\{tempo:\s*(.*?)\}/i)?.[1] ? { tempo: input.match(/\{tempo:\s*(.*?)\}/i)?.[1] } : {}),
+    },
+    sections: [],
+  }),
+}));
+
+let mockAuthValue: any = {
+  user: { id: "u1", email: "test@test.com", displayName: "Test", role: "owner" },
+  activeOrg: { id: "org1", name: "Test Church", role: "admin" },
+};
+vi.mock("@/contexts/AuthContext", () => ({
+  useAuth: () => mockAuthValue,
 }));
 
 function renderNewSong() {
+  const router = createMemoryRouter(
+    [
+      { path: "/songs/new", element: <SongEditPage /> },
+      { path: "/songs", element: <div>Songs List</div> },
+    ],
+    { initialEntries: ["/songs/new"] },
+  );
+
   return render(
-    <MemoryRouter initialEntries={["/songs/new"]}>
-      <Routes>
-        <Route path="/songs/new" element={<SongEditPage />} />
-      </Routes>
-    </MemoryRouter>,
+    <RouterProvider router={router} />,
   );
 }
 
 function renderEditSong(id = "song-1") {
+  const router = createMemoryRouter(
+    [
+      { path: "/songs/:id/edit", element: <SongEditPage /> },
+      { path: "/songs/:id", element: <div>Song View</div> },
+      { path: "/songs", element: <div>Songs List</div> },
+    ],
+    { initialEntries: [`/songs/${id}/edit`] },
+  );
+
   return render(
-    <MemoryRouter initialEntries={[`/songs/${id}/edit`]}>
-      <Routes>
-        <Route path="/songs/:id/edit" element={<SongEditPage />} />
-      </Routes>
-    </MemoryRouter>,
+    <RouterProvider router={router} />,
   );
 }
 
 function renderEditSongVariation(id = "song-1", variationId = "v1") {
+  const router = createMemoryRouter(
+    [
+      { path: "/songs/:id/edit", element: <SongEditPage /> },
+      { path: "/songs/:id", element: <div>Song View</div> },
+      { path: "/songs", element: <div>Songs List</div> },
+    ],
+    { initialEntries: [`/songs/${id}/edit?variation=${variationId}`] },
+  );
+
   return render(
-    <MemoryRouter initialEntries={[`/songs/${id}/edit?variation=${variationId}`]}>
-      <Routes>
-        <Route path="/songs/:id/edit" element={<SongEditPage />} />
-      </Routes>
-    </MemoryRouter>,
+    <RouterProvider router={router} />,
   );
 }
 
 describe("SongEditPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    mockImportChrd.mockResolvedValue({ song: { id: "imported-chrd" } });
+    mockPreviewImportChrd.mockResolvedValue({
+      chordPro: "{title: Test}\n{key: G}\n\n[G]Hello",
+      metadata: { title: "Test", key: "G", artist: null, tempo: null },
+    });
+    mockImportOnSong.mockResolvedValue({ song: { id: "imported-onsong" }, chordPro: "{title: Test}" });
+    mockPreviewImportOnSong.mockResolvedValue({
+      chordPro: "{title: Test Song}\n{key: C}\n\n[C]Hello",
+      metadata: { title: "Test Song", key: "C", artist: null, tempo: null },
+    });
+    mockImportPdf.mockResolvedValue({ song: { id: "imported-pdf" }, chordPro: "{title: Test}" });
+    mockPreviewImportPdf.mockResolvedValue({
+      chordPro: "{title: PDF Song}\n{tempo: 88}\n\n[C]Hello",
+      metadata: { title: "PDF Song", key: null, artist: null, tempo: 88 },
+    });
   });
 
   // ===================== POSITIVE — New Song =====================
@@ -89,9 +154,12 @@ describe("SongEditPage", () => {
     it("renders all form fields", () => {
       renderNewSong();
       expect(screen.getByPlaceholderText("Song title")).toBeInTheDocument();
+      expect(screen.getByPlaceholderText("Wedding, Church, Special Event")).toBeInTheDocument();
       expect(screen.getByText("Select key")).toBeInTheDocument();
       expect(screen.getByPlaceholderText("120")).toBeInTheDocument();
       expect(screen.getByPlaceholderText("Artist or composer")).toBeInTheDocument();
+      expect(screen.getByPlaceholderText("Optional alternate names, comma separated")).toBeInTheDocument();
+      expect(screen.getByPlaceholderText("Optional spoken cue or callout")).toBeInTheDocument();
       expect(screen.getByText("Tags")).toBeInTheDocument();
     });
 
@@ -110,11 +178,40 @@ describe("SongEditPage", () => {
       renderNewSong();
       const user = userEvent.setup();
       await user.type(screen.getByPlaceholderText("Song title"), "New Song Title");
+      await user.type(screen.getByPlaceholderText("Wedding, Church, Special Event"), "Church");
+      await user.type(screen.getByPlaceholderText("Optional alternate names, comma separated"), "Grace Song, Old Hymn");
+      await user.type(screen.getByPlaceholderText("Optional spoken cue or callout"), "Band comes in loud");
       await user.click(screen.getByRole("button", { name: /create song/i }));
 
       await waitFor(() => {
-        expect(mockCreate).toHaveBeenCalled();
+        expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({
+          title: "New Song Title",
+          category: "Church",
+          aka: "Grace Song, Old Hymn",
+          shout: "Band comes in loud",
+        }));
         expect(mockNavigate).toHaveBeenCalledWith("/songs/new-1");
+      });
+    });
+
+    it("creates song with tags added through the tag input", async () => {
+      mockCreate.mockResolvedValue({ song: { id: "new-2" } });
+      renderNewSong();
+      const user = userEvent.setup();
+
+      await user.type(screen.getByPlaceholderText("Song title"), "Tagged Song");
+      await user.type(screen.getByTestId("tag-text-input"), "worship");
+      await user.keyboard("{Enter}");
+      await user.type(screen.getByTestId("tag-text-input"), "Choir");
+      await user.keyboard("{Enter}");
+      await user.click(screen.getByRole("button", { name: /create song/i }));
+
+      await waitFor(() => {
+        expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({
+          title: "Tagged Song",
+          tags: "worship,choir",
+        }));
+        expect(mockNavigate).toHaveBeenCalledWith("/songs/new-2");
       });
     });
 
@@ -135,9 +232,12 @@ describe("SongEditPage", () => {
     const existingSong = {
       id: "song-1",
       title: "Amazing Grace",
+      aka: "Grace Song, Old Hymn",
+      category: "Church",
       key: "G",
       tempo: 72,
       artist: "Newton",
+      shout: "Choir echoes",
       tags: "hymn",
       content: "[G]Amazing",
       isDraft: false,
@@ -163,7 +263,10 @@ describe("SongEditPage", () => {
       renderEditSong();
       await waitFor(() => {
         expect(screen.getByDisplayValue("Amazing Grace")).toBeInTheDocument();
+        expect(screen.getByDisplayValue("Church")).toBeInTheDocument();
         expect(screen.getByDisplayValue("Newton")).toBeInTheDocument();
+        expect(screen.getByDisplayValue("Grace Song, Old Hymn")).toBeInTheDocument();
+        expect(screen.getByDisplayValue("Choir echoes")).toBeInTheDocument();
         // Tags render as pills in TagInput, not plain input values
         expect(screen.getByText("hymn")).toBeInTheDocument();
       });
@@ -203,8 +306,11 @@ describe("SongEditPage", () => {
       await waitFor(() => {
         expect(mockUpdate).toHaveBeenCalledWith("song-1", {
           title: "Amazing Grace",
+          aka: "Grace Song, Old Hymn",
+          category: "Church",
           tempo: 72,
           artist: "Newton",
+          shout: "Choir echoes",
           tags: "hymn",
           isDraft: false,
         });
@@ -213,6 +319,62 @@ describe("SongEditPage", () => {
           key: "C",
         });
         expect(mockNavigate).toHaveBeenCalledWith("/songs/song-1?variation=v1");
+      });
+    });
+
+    it("updates tags when adding another tag to an existing song", async () => {
+      mockGet.mockResolvedValue({ song: existingSong, variations: [] });
+      mockUpdate.mockResolvedValue({ song: { ...existingSong, tags: "hymn,choir" } });
+      renderEditSong();
+      const user = userEvent.setup();
+
+      await screen.findByText("hymn");
+      await user.type(screen.getByTestId("tag-text-input"), "choir");
+      await user.keyboard("{Enter}");
+      await user.click(screen.getByRole("button", { name: /update song/i }));
+
+      await waitFor(() => {
+        expect(mockUpdate).toHaveBeenCalledWith("song-1", expect.objectContaining({
+          tags: "hymn,choir",
+        }));
+        expect(mockNavigate).toHaveBeenCalledWith("/songs/song-1");
+      });
+    });
+
+    it("updates the song category", async () => {
+      mockGet.mockResolvedValue({ song: existingSong, variations: [] });
+      mockUpdate.mockResolvedValue({ song: { ...existingSong, category: "Special Event" } });
+      renderEditSong();
+      const user = userEvent.setup();
+
+      await screen.findByDisplayValue("Church");
+      await user.clear(screen.getByPlaceholderText("Wedding, Church, Special Event"));
+      await user.type(screen.getByPlaceholderText("Wedding, Church, Special Event"), "Special Event");
+      await user.click(screen.getByRole("button", { name: /update song/i }));
+
+      await waitFor(() => {
+        expect(mockUpdate).toHaveBeenCalledWith("song-1", expect.objectContaining({
+          category: "Special Event",
+        }));
+      });
+    });
+
+    it("clears tags when all existing tag pills are removed", async () => {
+      mockGet.mockResolvedValue({ song: { ...existingSong, tags: "hymn,worship" }, variations: [] });
+      mockUpdate.mockResolvedValue({ song: { ...existingSong, tags: null } });
+      renderEditSong();
+      const user = userEvent.setup();
+
+      await screen.findByText("hymn");
+      await user.click(screen.getByTestId("tag-remove-hymn"));
+      await user.click(screen.getByTestId("tag-remove-worship"));
+      await user.click(screen.getByRole("button", { name: /update song/i }));
+
+      await waitFor(() => {
+        expect(mockUpdate).toHaveBeenCalledWith("song-1", expect.objectContaining({
+          tags: undefined,
+        }));
+        expect(mockNavigate).toHaveBeenCalledWith("/songs/song-1");
       });
     });
   });
@@ -256,7 +418,7 @@ describe("SongEditPage", () => {
     it("shows loading spinner when editing and loading data", () => {
       mockGet.mockReturnValue(new Promise(() => {}));
       renderEditSong();
-      expect(document.querySelector(".animate-spin")).toBeInTheDocument();
+      expect(document.querySelector(".spinner")).toBeInTheDocument();
     });
 
     it("disables save button while saving", async () => {
@@ -269,6 +431,67 @@ describe("SongEditPage", () => {
       await waitFor(() => {
         expect(screen.getByRole("button", { name: /saving/i })).toBeDisabled();
       });
+    });
+
+    it("warns before leaving with unsaved changes via browser unload", async () => {
+      renderNewSong();
+      const user = userEvent.setup();
+
+      await user.type(screen.getByPlaceholderText("Song title"), "Unsaved title");
+
+      const event = new Event("beforeunload", { cancelable: true });
+      window.dispatchEvent(event);
+
+      expect(event.defaultPrevented).toBe(true);
+    });
+
+    it("prompts before cancel navigation when there are unsaved changes", async () => {
+      vi.spyOn(window, "confirm").mockReturnValue(false);
+      renderNewSong();
+      const user = userEvent.setup();
+
+      await user.type(screen.getByPlaceholderText("Song title"), "Unsaved title");
+      await user.click(screen.getByRole("link", { name: /cancel/i }));
+
+      expect(window.confirm).toHaveBeenCalledWith(
+        "You have unsaved changes. Press OK to leave this page and discard them, or Cancel to stay here.",
+      );
+      expect(screen.queryByText("Songs List")).not.toBeInTheDocument();
+      expect(screen.getByText("New Song")).toBeInTheDocument();
+    });
+
+    it("prompts before switching variation targets when there are unsaved changes", async () => {
+      const existingSong = {
+        id: "song-1",
+        title: "Amazing Grace",
+        key: "G",
+        tempo: 72,
+        artist: "Newton",
+        tags: "hymn",
+        content: "[G]Amazing",
+        isDraft: false,
+      };
+      const existingVariation = {
+        id: "v1",
+        songId: "song-1",
+        name: "Acoustic",
+        key: "C",
+        content: "[C]Amazing",
+      };
+
+      mockGet.mockResolvedValue({ song: existingSong, variations: [existingVariation] });
+      vi.spyOn(window, "confirm").mockReturnValue(false);
+      renderEditSongVariation();
+      const user = userEvent.setup();
+
+      const editor = await screen.findByTestId("chordpro-editor");
+      await user.type(editor, " changed");
+      await user.selectOptions(screen.getByLabelText(/working on/i), "");
+
+      expect(window.confirm).toHaveBeenCalledWith(
+        "You have unsaved changes. Switch editing targets and discard them?",
+      );
+      expect(screen.getByDisplayValue("Acoustic (C)")).toBeInTheDocument();
     });
   });
 
@@ -283,6 +506,104 @@ describe("SongEditPage", () => {
     it("shows supported formats including .pdf in the label", () => {
       renderNewSong();
       expect(screen.getByText(/\.pdf/i)).toBeInTheDocument();
+    });
+
+    it("loads a PDF into the form preview instead of navigating immediately", async () => {
+      renderNewSong();
+      const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+      const file = new File(["fake-pdf-content"], "preview.pdf", { type: "application/pdf" });
+
+      await userEvent.upload(fileInput, file);
+
+      await waitFor(() => {
+        expect(mockPreviewImportPdf).toHaveBeenCalled();
+      });
+
+      expect(mockNavigate).not.toHaveBeenCalled();
+      expect(screen.getByDisplayValue("PDF Song")).toBeInTheDocument();
+      expect(screen.getByDisplayValue("88")).toBeInTheDocument();
+      expect(screen.getByTestId("import-preview-card")).toBeInTheDocument();
+      expect(screen.getByText(/Loaded from preview\.pdf via PDF/i)).toBeInTheDocument();
+    });
+  });
+
+  describe("OnSong/OpenSong import", () => {
+    it("accepts .onsong and .xml files in the import input", () => {
+      renderNewSong();
+      const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+      expect(fileInput.multiple).toBe(true);
+      expect(fileInput.accept).toContain(".onsong");
+      expect(fileInput.accept).toContain(".xml");
+    });
+
+    it("shows supported formats including .onsong and .xml in the label", () => {
+      renderNewSong();
+      expect(screen.getByText(/\.onsong/i)).toBeInTheDocument();
+      expect(screen.getByText(/\.xml/i)).toBeInTheDocument();
+    });
+
+    it("imports .onsong files into the preview flow and keeps the user on the form", async () => {
+      renderNewSong();
+      const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+      const file = new File(["Title: Test Song\n\nVerse 1:\n[C]Hello"], "test.onsong", { type: "text/plain" });
+
+      await userEvent.upload(fileInput, file);
+
+      await waitFor(() => {
+        expect(mockPreviewImportOnSong).toHaveBeenCalledWith({
+          filename: "test.onsong",
+          content: "Title: Test Song\n\nVerse 1:\n[C]Hello",
+        });
+      });
+
+      expect(mockNavigate).not.toHaveBeenCalled();
+      expect(screen.getByDisplayValue("Test Song")).toBeInTheDocument();
+      expect(screen.getByDisplayValue("C")).toBeInTheDocument();
+      expect(screen.getByTestId("import-preview-card")).toBeInTheDocument();
+      expect(screen.getByText(/Loaded from test\.onsong via OnSong/i)).toBeInTheDocument();
+      expect(screen.getByTestId("import-preview-renderer")).toHaveTextContent("{title: Test Song}");
+    });
+
+    it("bulk imports multiple files and shows progress results", async () => {
+      mockCreate.mockResolvedValue({ song: { id: "bulk-chopro", title: "Alpha Song" } });
+      mockImportOnSong.mockResolvedValue({ song: { id: "bulk-onsong", title: "Beta Song" }, chordPro: "{title: Beta Song}" });
+      mockImportChrd.mockResolvedValue({ song: { id: "bulk-chrd", title: "Gamma Song" } });
+
+      renderNewSong();
+      const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+
+      const chordProFile = new File(["{title: Alpha Song}\n{key: G}\n\n[G]Hello"], "alpha.chopro", { type: "text/plain" });
+      const onSongFile = new File(["Title: Beta Song\n\nVerse 1:\n[C]World"], "beta.onsong", { type: "text/plain" });
+      const chrdFile = new File(["Gamma Song\nG D\nAmazing grace"], "gamma.chrd", { type: "text/plain" });
+
+      await userEvent.upload(fileInput, [chordProFile, onSongFile, chrdFile]);
+
+      await waitFor(() => {
+        expect(mockCreate).toHaveBeenCalledWith({
+          title: "Alpha Song",
+          artist: undefined,
+          key: "G",
+          tempo: undefined,
+          content: "{title: Alpha Song}\n{key: G}\n\n[G]Hello",
+        });
+        expect(mockImportOnSong).toHaveBeenCalledWith({
+          filename: "beta.onsong",
+          content: "Title: Beta Song\n\nVerse 1:\n[C]World",
+        });
+        expect(mockImportChrd).toHaveBeenCalledWith({
+          filename: "gamma.chrd",
+          content: "Gamma Song\nG D\nAmazing grace",
+        });
+      });
+
+      expect(mockNavigate).not.toHaveBeenCalled();
+      expect(screen.getByTestId("bulk-import-status")).toBeInTheDocument();
+      expect(screen.getByText("Bulk import progress")).toBeInTheDocument();
+      expect(screen.getByText("3 of 3 completed")).toBeInTheDocument();
+      expect(screen.getByText("Imported as Alpha Song")).toBeInTheDocument();
+      expect(screen.getByText("Imported as Beta Song")).toBeInTheDocument();
+      expect(screen.getByText("Imported as Gamma Song")).toBeInTheDocument();
+      expect(screen.getAllByText("Open song")).toHaveLength(3);
     });
   });
 });

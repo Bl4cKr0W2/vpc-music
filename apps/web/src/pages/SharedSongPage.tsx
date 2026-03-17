@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useParams, Link } from "react-router-dom";
 import { shareApi, type Song } from "@/lib/api-client";
 import { ChordProRenderer, AutoScroll, type ChordProRendererHandle } from "@/components/songs/ChordProRenderer";
+import { TempoIndicator } from "@/components/songs/TempoIndicator";
 import { ThemeToggleButton } from "@/components/ui/ThemeToggleButton";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { Eye, EyeOff, Music, Printer, Hash } from "lucide-react";
@@ -92,8 +93,11 @@ export function SharedSongPage() {
           </h1>
           <div className="flex flex-wrap gap-3 text-sm text-[hsl(var(--muted-foreground))]">
             {song.artist && <span>{song.artist}</span>}
+            {song.category && <span>Category: {song.category}</span>}
+            {song.aka && <span>AKA: {song.aka}</span>}
+            {song.shout && <span>Shout: {song.shout}</span>}
             {song.key && <span>Key: {song.key}</span>}
-            {song.tempo && <span>{song.tempo} BPM</span>}
+            {song.tempo && <TempoIndicator tempo={song.tempo} />}
           </div>
         </div>
 

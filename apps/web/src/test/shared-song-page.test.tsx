@@ -39,9 +39,12 @@ function renderShared(token = "valid-token") {
 const mockSong = {
   id: "song-1",
   title: "Amazing Grace",
+  aka: "Grace Song, Old Hymn",
+  category: "Church",
   key: "G",
   tempo: 72,
   artist: "John Newton",
+  shout: "Choir echoes",
   content: "{title: Amazing Grace}\n[G]Amazing grace how sweet the sound",
 };
 
@@ -64,8 +67,12 @@ describe("SharedSongPage", () => {
       expect(screen.getByText("Amazing Grace")).toBeInTheDocument();
     });
     expect(screen.getByText("John Newton")).toBeInTheDocument();
+    expect(screen.getByText("Category: Church")).toBeInTheDocument();
+    expect(screen.getByText("AKA: Grace Song, Old Hymn")).toBeInTheDocument();
+    expect(screen.getByText("Shout: Choir echoes")).toBeInTheDocument();
     expect(screen.getByText("Key: G")).toBeInTheDocument();
     expect(screen.getByText("72 BPM")).toBeInTheDocument();
+    expect(screen.getByLabelText("Tempo 72 BPM")).toBeInTheDocument();
   });
 
   it("renders ChordPro content", async () => {

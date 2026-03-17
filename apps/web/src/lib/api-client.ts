@@ -8,14 +8,31 @@ export function setActiveOrganizationId(id: string | null) {
   _activeOrgId = id;
 }
 
-async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    ...(options?.headers as Record<string, string>),
+function withOrganizationHeaders(headers?: HeadersInit) {
+  const nextHeaders: Record<string, string> = {
+    ...(headers as Record<string, string> | undefined),
   };
+
   if (_activeOrgId) {
-    headers["X-Organization-Id"] = _activeOrgId;
+    nextHeaders["X-Organization-Id"] = _activeOrgId;
   }
+
+  return nextHeaders;
+}
+
+function fetchWithOrganization(path: string, options?: RequestInit) {
+  return fetch(`${API_ORIGIN}${path}`, {
+    credentials: "include",
+    ...options,
+    headers: withOrganizationHeaders(options?.headers),
+  });
+}
+
+async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  const headers = {
+    "Content-Type": "application/json",
+    ...withOrganizationHeaders(options?.headers),
+  };
   const res = await fetch(`${API_ORIGIN}${path}`, {
     credentials: "include",
     ...options,
@@ -76,13 +93,17 @@ export const authApi = {
 export interface Song {
   id: string;
   title: string;
+  aka?: string | null;
+  category?: string | null;
   key?: string | null;
   tempo?: number | null;
   artist?: string | null;
+  shout?: string | null;
   year?: string | null;
   tags?: string | null;
   content: string;
   isDraft?: boolean;
+  defaultVariationId?: string | null;
   createdBy?: string | null;
   createdAt?: string;
   updatedAt?: string;
@@ -99,18 +120,56 @@ export interface SongVariation {
   updatedAt?: string;
 }
 
+export interface SongGroup {
+  id: string;
+  name: string;
+  songCount?: number;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface ImportPreviewResponse {
+  chordPro: string;
+  metadata: {
+    title?: string | null;
+    artist?: string | null;
+    key?: string | null;
+    tempo?: number | null;
+  };
+}
+
 export const songsApi = {
-  list: (params?: { q?: string; tag?: string; key?: string; limit?: number; offset?: number }) => {
+  list: (params?: { q?: string; groupId?: string; category?: string; tag?: string; key?: string; tempoMin?: number; tempoMax?: number; sort?: "lastEdited" | "title" | "recentlyAdded" | "mostUsed"; limit?: number; offset?: number }) => {
     const qs = new URLSearchParams();
     if (params?.q) qs.set("q", params.q);
+    if (params?.groupId) qs.set("groupId", params.groupId);
+    if (params?.category) qs.set("category", params.category);
     if (params?.tag) qs.set("tag", params.tag);
     if (params?.key) qs.set("key", params.key);
+    if (params?.tempoMin !== undefined) qs.set("tempoMin", String(params.tempoMin));
+    if (params?.tempoMax !== undefined) qs.set("tempoMax", String(params.tempoMax));
+    if (params?.sort) qs.set("sort", params.sort);
     if (params?.limit) qs.set("limit", String(params.limit));
     if (params?.offset) qs.set("offset", String(params.offset));
     const query = qs.toString();
     return request<{ songs: Song[]; total: number }>(`/api/songs${query ? `?${query}` : ""}`);
   },
   get: (id: string) => request<{ song: Song; variations: SongVariation[] }>(`/api/songs/${id}`),
+  getGroups: () => request<{ groups: SongGroup[] }>("/api/songs/groups"),
+  createGroup: (data: { name: string }) =>
+    request<{ group: SongGroup }>("/api/songs/groups", { method: "POST", body: JSON.stringify(data) }),
+  updateGroup: (groupId: string, data: { name: string }) =>
+    request<{ group: SongGroup }>(`/api/songs/groups/${groupId}`, { method: "PUT", body: JSON.stringify(data) }),
+  deleteGroup: (groupId: string) =>
+    request<{ message: string }>(`/api/songs/groups/${groupId}`, { method: "DELETE" }),
+  addSongsToGroup: (groupId: string, songIds: string[]) =>
+    request<{ addedSongIds: string[]; skippedSongIds: string[] }>(`/api/songs/groups/${groupId}/songs`, {
+      method: "POST",
+      body: JSON.stringify({ songIds }),
+    }),
+  removeSongFromGroup: (groupId: string, songId: string) =>
+    request<{ message: string }>(`/api/songs/groups/${groupId}/songs/${songId}`, { method: "DELETE" }),
+  getCategories: () => request<{ categories: string[] }>("/api/songs/categories"),
   getTags: () => request<{ tags: string[] }>("/api/songs/tags"),
   create: (data: Partial<Song>) =>
     request<{ song: Song }>("/api/songs", { method: "POST", body: JSON.stringify(data) }),
@@ -119,12 +178,27 @@ export const songsApi = {
   delete: (id: string) => request<{ message: string }>(`/api/songs/${id}`, { method: "DELETE" }),
   importChrd: (data: { filename: string; content: string }) =>
     request<{ song: Song }>("/api/songs/import/chrd", { method: "POST", body: JSON.stringify(data) }),
-  exportChordPro: (id: string) =>
-    fetch(`${API_ORIGIN}/api/songs/${id}/export/chordpro`, { credentials: "include" }),
-  exportOnSong: (id: string) =>
-    fetch(`${API_ORIGIN}/api/songs/${id}/export/onsong`, { credentials: "include" }),
-  exportPdf: (id: string) =>
-    `${API_ORIGIN}/api/songs/${id}/export/pdf`,
+  previewImportChrd: (data: { filename: string; content: string }) =>
+    request<ImportPreviewResponse>("/api/songs/import/chrd/preview", { method: "POST", body: JSON.stringify(data) }),
+  importOnSong: (data: { filename: string; content: string }) =>
+    request<{ song: Song; chordPro: string }>("/api/songs/import/onsong", { method: "POST", body: JSON.stringify(data) }),
+  previewImportOnSong: (data: { filename: string; content: string }) =>
+    request<ImportPreviewResponse>("/api/songs/import/onsong/preview", { method: "POST", body: JSON.stringify(data) }),
+  exportZip: (songIds: string[], format: "chordpro" | "onsong" | "text" = "chordpro") => {
+    const qs = new URLSearchParams({ format });
+    for (const songId of songIds) {
+      qs.append("id", songId);
+    }
+    return fetchWithOrganization(`/api/songs/export/zip?${qs.toString()}`);
+  },
+  exportChordPro: (id: string, variationId?: string | null) =>
+    fetchWithOrganization(`/api/songs/${id}/export/chordpro${variationId ? `?variationId=${variationId}` : ""}`),
+  exportOnSong: (id: string, variationId?: string | null) =>
+    fetchWithOrganization(`/api/songs/${id}/export/onsong${variationId ? `?variationId=${variationId}` : ""}`),
+  exportText: (id: string, variationId?: string | null, lyricsOnly?: boolean) =>
+    fetchWithOrganization(`/api/songs/${id}/export/text${variationId || lyricsOnly ? `?${new URLSearchParams({ ...(variationId ? { variationId } : {}), ...(lyricsOnly ? { lyricsOnly: "true" } : {}) }).toString()}` : ""}`),
+  exportPdf: (id: string, variationId?: string | null) =>
+    `${API_ORIGIN}/api/songs/${id}/export/pdf${variationId ? `?variationId=${variationId}` : ""}`,
   importPdf: async (file: File) => {
     const formData = new FormData();
     formData.append("file", file);
@@ -142,6 +216,23 @@ export const songsApi = {
     }
     return res.json() as Promise<{ song: Song; chordPro: string }>;
   },
+  previewImportPdf: async (file: File) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    const headers: Record<string, string> = {};
+    if (_activeOrgId) headers["X-Organization-Id"] = _activeOrgId;
+    const res = await fetch(`${API_ORIGIN}/api/songs/import/pdf/preview`, {
+      method: "POST",
+      credentials: "include",
+      headers,
+      body: formData,
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body?.error?.message || `HTTP ${res.status}`);
+    }
+    return res.json() as Promise<ImportPreviewResponse>;
+  },
 };
 
 // ── Song Variations ──────────────────────────────
@@ -155,6 +246,11 @@ export const variationsApi = {
     request<{ variation: SongVariation }>(`/api/songs/${songId}/variations/${varId}`, {
       method: "PUT",
       body: JSON.stringify(data),
+    }),
+  setDefault: (songId: string, variationId: string | null) =>
+    request<{ song: Song }>(`/api/songs/${songId}/default-variation`, {
+      method: "PATCH",
+      body: JSON.stringify({ variationId }),
     }),
   delete: (songId: string, varId: string) =>
     request<{ message: string }>(`/api/songs/${songId}/variations/${varId}`, { method: "DELETE" }),
@@ -175,6 +271,8 @@ export interface Setlist {
 export interface SetlistSongItem {
   id: string;
   songId: string;
+  variationId?: string | null;
+  variationName?: string | null;
   position: number;
   key?: string | null;
   notes?: string | null;
@@ -187,12 +285,14 @@ export interface SetlistSongItem {
 export const setlistsApi = {
   list: () => request<{ setlists: Setlist[] }>("/api/setlists"),
   get: (id: string) => request<{ setlist: Setlist; songs: SetlistSongItem[] }>(`/api/setlists/${id}`),
+  exportZip: (id: string, format: "chordpro" | "onsong" | "text" = "chordpro") =>
+    fetchWithOrganization(`/api/setlists/${id}/export/zip?format=${format}`),
   create: (data: Partial<Setlist>) =>
     request<{ setlist: Setlist }>("/api/setlists", { method: "POST", body: JSON.stringify(data) }),
   update: (id: string, data: Partial<Setlist>) =>
     request<{ setlist: Setlist }>(`/api/setlists/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   delete: (id: string) => request<{ message: string }>(`/api/setlists/${id}`, { method: "DELETE" }),
-  addSong: (setlistId: string, data: { songId: string; key?: string; notes?: string }) =>
+  addSong: (setlistId: string, data: { songId: string; variationId?: string; key?: string; notes?: string }) =>
     request<{ item: SetlistSongItem }>(`/api/setlists/${setlistId}/songs`, {
       method: "POST",
       body: JSON.stringify(data),
@@ -282,6 +382,10 @@ export const songUsageApi = {
     request<{ usages: SongUsage[] }>(`/api/songs/${songId}/usage`),
   remove: (songId: string, usageId: string) =>
     request<{ message: string }>(`/api/songs/${songId}/usage/${usageId}`, { method: "DELETE" }),
+  mostUsed: (limit?: number) => {
+    const qs = limit ? `?limit=${limit}` : "";
+    return request<{ songs: (Song & { useCount: number; lastUsed: string })[] }>(`/api/songs/most-used${qs}`);
+  },
 };
 
 // ── Song Edit History ────────────────────────────
@@ -392,6 +496,35 @@ export const adminApi = {
   /** Remove a member from the org */
   removeMember: (userId: string) =>
     request<{ message: string }>(`/api/admin/users/${userId}`, {
+      method: "DELETE",
+    }),
+};
+
+// ── Organizations ────────────────────────────────
+export interface Organization {
+  id: string;
+  name: string;
+  role?: "admin" | "musician" | "observer";
+}
+
+export const orgsApi = {
+  /** List organizations the user belongs to (owners see all) */
+  list: () => request<{ organizations: Organization[] }>("/api/organizations"),
+  /** Create a new organization */
+  create: (name: string) =>
+    request<{ organization: Organization }>("/api/organizations", {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    }),
+  /** Rename an organization */
+  update: (id: string, name: string) =>
+    request<{ organization: Organization }>(`/api/organizations/${id}`, {
+      method: "PUT",
+      body: JSON.stringify({ name }),
+    }),
+  /** Delete an organization (owner only) */
+  remove: (id: string) =>
+    request<{ message: string }>(`/api/organizations/${id}`, {
       method: "DELETE",
     }),
 };

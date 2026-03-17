@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { adminApi, type OrgUser } from "@/lib/api-client";
 import { toast } from "sonner";
+import { roleLabel, ROLE_DESCRIPTIONS } from "@vpc-music/shared";
 import {
   UserPlus,
   Shield,
@@ -14,7 +15,7 @@ import {
 } from "lucide-react";
 
 const ROLE_OPTIONS: { value: string; label: string; icon: typeof Shield }[] = [
-  { value: "admin", label: "Admin", icon: Shield },
+  { value: "admin", label: "Worship Leader", icon: Shield },
   { value: "musician", label: "Musician", icon: Music },
   { value: "observer", label: "Observer", icon: Eye },
 ];
@@ -210,6 +211,12 @@ export function AdminPage() {
             Send Email Invite
           </button>
         </form>
+        {ROLE_DESCRIPTIONS[invRole as keyof typeof ROLE_DESCRIPTIONS] && (
+          <p className="text-xs text-[hsl(var(--muted-foreground))] -mt-1">
+            <span className="font-medium">{ROLE_OPTIONS.find(r => r.value === invRole)?.label ?? invRole}:</span>{" "}
+            {ROLE_DESCRIPTIONS[invRole as keyof typeof ROLE_DESCRIPTIONS]}
+          </p>
+        )}
 
         {/* Show invite link after successful invite */}
         {copiedUrl && (
@@ -306,7 +313,7 @@ export function AdminPage() {
                   <span
                     className={`hidden sm:inline-flex text-[10px] font-semibold uppercase px-2 py-0.5 rounded ${roleBadge(member.orgRole)}`}
                   >
-                    {member.orgRole}
+                    {roleLabel(member.orgRole)}
                   </span>
 
                   {/* Remove button */}

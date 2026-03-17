@@ -106,13 +106,69 @@ describe("songsApi", () => {
   it("list — builds correct URL with query params", async () => {
     mockFetch.mockResolvedValue(jsonResponse({ songs: [], total: 0 }));
 
-    await songsApi.list({ q: "grace", key: "G", limit: 10 });
+    await songsApi.list({ q: "grace", groupId: "group-1", category: "Church", key: "G", limit: 10 });
 
     const [url] = mockFetch.mock.calls[0];
     expect(url).toContain("/api/songs?");
     expect(url).toContain("q=grace");
+    expect(url).toContain("groupId=group-1");
+    expect(url).toContain("category=Church");
     expect(url).toContain("key=G");
     expect(url).toContain("limit=10");
+  });
+
+  it("getGroups — fetches reusable song groups", async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ groups: [{ id: "group-1", name: "Wedding Songs", songCount: 3 }] }));
+
+    const result = await songsApi.getGroups();
+
+    expect(result.groups[0]?.name).toBe("Wedding Songs");
+
+    const [url] = mockFetch.mock.calls[0];
+    expect(url).toContain("/api/songs/groups");
+  });
+
+  it("createGroup — sends POST with group name", async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ group: { id: "group-1", name: "Wedding Songs" } }));
+
+    await songsApi.createGroup({ name: "Wedding Songs" });
+
+    const [url, options] = mockFetch.mock.calls[0];
+    expect(url).toContain("/api/songs/groups");
+    expect(options.method).toBe("POST");
+    expect(JSON.parse(options.body)).toEqual({ name: "Wedding Songs" });
+  });
+
+  it("addSongsToGroup — sends POST with selected song ids", async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ addedSongIds: ["song-1"], skippedSongIds: [] }));
+
+    await songsApi.addSongsToGroup("group-1", ["song-1", "song-2"]);
+
+    const [url, options] = mockFetch.mock.calls[0];
+    expect(url).toContain("/api/songs/groups/group-1/songs");
+    expect(options.method).toBe("POST");
+    expect(JSON.parse(options.body)).toEqual({ songIds: ["song-1", "song-2"] });
+  });
+
+  it("removeSongFromGroup — sends DELETE to membership endpoint", async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ message: "Removed" }));
+
+    await songsApi.removeSongFromGroup("group-1", "song-1");
+
+    const [url, options] = mockFetch.mock.calls[0];
+    expect(url).toContain("/api/songs/groups/group-1/songs/song-1");
+    expect(options.method).toBe("DELETE");
+  });
+
+  it("getCategories — fetches unique song categories", async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ categories: ["Church", "Wedding"] }));
+
+    const result = await songsApi.getCategories();
+
+    expect(result.categories).toEqual(["Church", "Wedding"]);
+
+    const [url] = mockFetch.mock.calls[0];
+    expect(url).toContain("/api/songs/categories");
   });
 
   it("list — omits empty params", async () => {
@@ -177,9 +233,90 @@ describe("songsApi", () => {
     expect(options.method).toBe("POST");
   });
 
+  it("previewImportChrd — sends POST to preview endpoint", async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ chordPro: "{title: Test}", metadata: { title: "Test" } }));
+
+    await songsApi.previewImportChrd({ filename: "song.chrd", content: "# G\n@ lyrics" });
+
+    const [url, options] = mockFetch.mock.calls[0];
+    expect(url).toContain("/api/songs/import/chrd/preview");
+    expect(options.method).toBe("POST");
+  });
+
+  it("importOnSong — sends POST to import endpoint", async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ song: { id: "imported-onsong" }, chordPro: "{title: Test}" }));
+
+    await songsApi.importOnSong({ filename: "song.onsong", content: "Title: Test" });
+
+    const [url, options] = mockFetch.mock.calls[0];
+    expect(url).toContain("/api/songs/import/onsong");
+    expect(options.method).toBe("POST");
+  });
+
+  it("previewImportOnSong — sends POST to preview endpoint", async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ chordPro: "{title: Test}", metadata: { title: "Test" } }));
+
+    await songsApi.previewImportOnSong({ filename: "song.onsong", content: "Title: Test" });
+
+    const [url, options] = mockFetch.mock.calls[0];
+    expect(url).toContain("/api/songs/import/onsong/preview");
+    expect(options.method).toBe("POST");
+  });
+
   it("exportPdf — returns URL string, not a fetch call", () => {
     const url = songsApi.exportPdf("s1");
     expect(url).toContain("/api/songs/s1/export/pdf");
+  });
+
+  it("exportChordPro — includes variationId query when provided", async () => {
+    mockFetch.mockResolvedValue(jsonResponse({}));
+
+    await songsApi.exportChordPro("s1", "v1");
+
+    const [url] = mockFetch.mock.calls[0];
+    expect(url).toContain("/api/songs/s1/export/chordpro?variationId=v1");
+  });
+
+  it("exportOnSong — includes variationId query when provided", async () => {
+    mockFetch.mockResolvedValue(jsonResponse({}));
+
+    await songsApi.exportOnSong("s1", "v1");
+
+    const [url] = mockFetch.mock.calls[0];
+    expect(url).toContain("/api/songs/s1/export/onsong?variationId=v1");
+  });
+
+  it("exportText — includes variationId query when provided", async () => {
+    mockFetch.mockResolvedValue(jsonResponse({}));
+
+    await songsApi.exportText("s1", "v1");
+
+    const [url] = mockFetch.mock.calls[0];
+    expect(url).toContain("/api/songs/s1/export/text?variationId=v1");
+  });
+
+  it("exportText — includes lyricsOnly query when provided", async () => {
+    mockFetch.mockResolvedValue(jsonResponse({}));
+
+    await songsApi.exportText("s1", undefined, true);
+
+    const [url] = mockFetch.mock.calls[0];
+    expect(url).toContain("/api/songs/s1/export/text?lyricsOnly=true");
+  });
+
+  it("exportPdf — includes variationId query when provided", () => {
+    const url = songsApi.exportPdf("s1", "v1");
+    expect(url).toContain("/api/songs/s1/export/pdf?variationId=v1");
+  });
+
+  it("exportZip — requests the song library zip endpoint with repeated ids", async () => {
+    mockFetch.mockResolvedValue(jsonResponse({}));
+
+    await songsApi.exportZip(["s1", "s2"], "onsong");
+
+    const [url, options] = mockFetch.mock.calls[0];
+    expect(url).toContain("/api/songs/export/zip?format=onsong&id=s1&id=s2");
+    expect(options.credentials).toBe("include");
   });
 
   it("importPdf — sends POST with FormData body", async () => {
@@ -198,6 +335,20 @@ describe("songsApi", () => {
     // Should NOT have Content-Type header (browser sets multipart boundary)
     const headers = options.headers || {};
     expect(headers["Content-Type"]).toBeUndefined();
+  });
+
+  it("previewImportPdf — sends POST with FormData body to preview endpoint", async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ chordPro: "{title: Test}", metadata: { title: "Test" } }));
+
+    const file = new File(["fake-pdf-content"], "song.pdf", { type: "application/pdf" });
+    const result = await songsApi.previewImportPdf(file);
+
+    expect(result.chordPro).toBe("{title: Test}");
+
+    const [url, options] = mockFetch.mock.calls[0];
+    expect(url).toContain("/api/songs/import/pdf/preview");
+    expect(options.method).toBe("POST");
+    expect(options.body).toBeInstanceOf(FormData);
   });
 
   it("importPdf — throws on error response", async () => {
@@ -234,6 +385,17 @@ describe("variationsApi", () => {
     const [url, options] = mockFetch.mock.calls[0];
     expect(url).toContain("/api/songs/s1/variations/v1");
     expect(options.method).toBe("PUT");
+  });
+
+  it("setDefault — sends PATCH with variation id", async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ song: { id: "s1", defaultVariationId: "v1" } }));
+
+    await variationsApi.setDefault("s1", "v1");
+
+    const [url, options] = mockFetch.mock.calls[0];
+    expect(url).toContain("/api/songs/s1/default-variation");
+    expect(options.method).toBe("PATCH");
+    expect(JSON.parse(options.body)).toEqual({ variationId: "v1" });
   });
 
   it("delete — sends DELETE", async () => {
@@ -326,6 +488,16 @@ describe("setlistsApi", () => {
     const [url, options] = mockFetch.mock.calls[0];
     expect(url).toContain("/api/setlists");
     expect(options.method).toBe("POST");
+  });
+
+  it("exportZip — requests the setlist zip endpoint with format", async () => {
+    mockFetch.mockResolvedValue(jsonResponse({}));
+
+    await setlistsApi.exportZip("sl1", "onsong");
+
+    const [url, options] = mockFetch.mock.calls[0];
+    expect(url).toContain("/api/setlists/sl1/export/zip?format=onsong");
+    expect(options.credentials).toBe("include");
   });
 
   it("addSong — sends POST to songs sub-resource", async () => {

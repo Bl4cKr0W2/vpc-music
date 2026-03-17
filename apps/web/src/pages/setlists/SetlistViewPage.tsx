@@ -7,6 +7,7 @@ import {
   type SetlistSongItem,
   type Song,
 } from "@/lib/api-client";
+import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import {
   ArrowLeft,
@@ -23,19 +24,33 @@ import {
   Users,
   LogOut,
   Play,
+  Tv,
+  AlertTriangle,
+  Download,
+  ChevronDown,
 } from "lucide-react";
 import { ALL_KEYS } from "@vpc-music/shared";
 import { useConductor } from "@/hooks/useConductor";
+import { PerformanceMode } from "@/components/setlists/PerformanceMode";
+import { getKeyDistance } from "@/utils/key-compat";
 
 export function SetlistViewPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { user, activeOrg } = useAuth();
+  const canEdit = user?.role === "owner" || activeOrg?.role === "admin" || activeOrg?.role === "musician";
   const [setlist, setSetlist] = useState<Setlist | null>(null);
   const [songs, setSongs] = useState<SetlistSongItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddSong, setShowAddSong] = useState(false);
+  const [showExportMenu, setShowExportMenu] = useState(false);
   const [availableSongs, setAvailableSongs] = useState<Song[]>([]);
   const [searchQ, setSearchQ] = useState("");
+
+  // ── Performance mode state ─────────────────────
+  const [performanceMode, setPerformanceMode] = useState(false);
+  const [songContents, setSongContents] = useState<Map<string, { songId: string; content: string; key?: string | null; tempo?: number | null }>>(new Map());
+  const [loadingContents, setLoadingContents] = useState(false);
 
   // ── Live mode state ────────────────────────────
   const [liveMode, setLiveMode] = useState<"off" | "conductor" | "member">("off");
@@ -95,6 +110,38 @@ export function SetlistViewPage() {
       .catch(() => toast.error("Setlist not found"))
       .finally(() => setLoading(false));
   }, [id]);
+
+  // Load song contents when entering performance mode
+  useEffect(() => {
+    if (!performanceMode || songs.length === 0) return;
+    setLoadingContents(true);
+    const fetchAll = async () => {
+      const map = new Map<string, { songId: string; content: string; key?: string | null; tempo?: number | null }>();
+      await Promise.all(
+        songs.map(async (item) => {
+          try {
+            const res = await songsApi.get(item.songId);
+            const song = res.song;
+            // If a variation is specified, use its content
+            const variation = item.variationId
+              ? res.variations?.find((v) => v.id === item.variationId)
+              : null;
+            map.set(item.songId, {
+              songId: item.songId,
+              content: variation?.content || song.content,
+              key: item.key || variation?.key || song.key,
+              tempo: song.tempo,
+            });
+          } catch {
+            // Skip songs that fail to load
+          }
+        })
+      );
+      setSongContents(map);
+      setLoadingContents(false);
+    };
+    fetchAll();
+  }, [performanceMode, songs]);
 
   // Load available songs for the add-song modal
   useEffect(() => {
@@ -190,19 +237,41 @@ export function SetlistViewPage() {
     }
   };
 
+  const handleExportZip = async (format: "chordpro" | "onsong" | "text") => {
+    if (!id || songs.length === 0) return;
+    try {
+      const res = await setlistsApi.exportZip(id, format);
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body?.error?.message || "Export failed");
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${setlist?.name || "setlist"}-${format}.zip`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success("Setlist zip exported");
+    } catch (err: any) {
+      toast.error(err.message || "Export failed");
+    }
+    setShowExportMenu(false);
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-[hsl(var(--muted))] border-t-[hsl(var(--secondary))]" />
+        <div className="spinner" />
       </div>
     );
   }
 
   if (!setlist) {
     return (
-      <div className="space-y-4 text-center py-20">
+      <div className="card-empty space-y-4">
         <p className="text-[hsl(var(--muted-foreground))]">Setlist not found.</p>
-        <Link to="/setlists" className="text-sm text-[hsl(var(--secondary))] hover:underline">
+        <Link to="/setlists" className="link-accent">
           Back to setlists
         </Link>
       </div>
@@ -215,44 +284,57 @@ export function SetlistViewPage() {
       <div className="flex flex-wrap items-center gap-3">
         <Link
           to="/setlists"
-          className="inline-flex items-center gap-1 text-sm text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]"
+          className="link-muted inline-flex items-center gap-1"
         >
           <ArrowLeft className="h-4 w-4" /> Setlists
         </Link>
         <div className="flex-1" />
-        {setlist.status === "complete" ? (
+        {canEdit && (
+          <>
+            {setlist.status === "complete" ? (
+              <button
+                onClick={handleReopen}
+                className="btn-outline btn-sm"
+              >
+                <RotateCcw className="h-3.5 w-3.5" /> Reopen
+              </button>
+            ) : (
+              <button
+                onClick={handleMarkComplete}
+                className="btn-success btn-sm"
+              >
+                <CheckCircle2 className="h-3.5 w-3.5" /> Mark Complete
+              </button>
+            )}
+            <button
+              onClick={handleDeleteSetlist}
+              className="btn-destructive btn-sm"
+            >
+              <Trash2 className="h-3.5 w-3.5" /> Delete
+            </button>
+          </>
+        )}
+        {songs.length > 0 && (
           <button
-            onClick={handleReopen}
-            className="inline-flex items-center gap-1.5 rounded-md border border-[hsl(var(--border))] px-3 py-1.5 text-xs hover:bg-[hsl(var(--muted))] transition-colors"
+            data-testid="enter-performance-mode"
+            onClick={() => setPerformanceMode(true)}
+            className="btn-primary btn-sm"
           >
-            <RotateCcw className="h-3.5 w-3.5" /> Reopen
-          </button>
-        ) : (
-          <button
-            onClick={handleMarkComplete}
-            className="inline-flex items-center gap-1.5 rounded-md bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-700 transition-colors"
-          >
-            <CheckCircle2 className="h-3.5 w-3.5" /> Mark Complete
+            <Tv className="h-3.5 w-3.5" /> Perform
           </button>
         )}
-        <button
-          onClick={handleDeleteSetlist}
-          className="inline-flex items-center gap-1.5 rounded-md border border-[hsl(var(--destructive))] px-3 py-1.5 text-xs text-[hsl(var(--destructive))] hover:bg-[hsl(var(--destructive))] hover:text-[hsl(var(--destructive-foreground))] transition-colors"
-        >
-          <Trash2 className="h-3.5 w-3.5" /> Delete
-        </button>
       </div>
 
       {/* Setlist info */}
       <div>
         <div className="flex items-center gap-2">
-          <h2 className="text-2xl font-brand text-[hsl(var(--foreground))]">{setlist.name}</h2>
+          <h2 className="page-title">{setlist.name}</h2>
           {setlist.status === "complete" ? (
-            <span className="inline-flex items-center gap-1 rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800 dark:bg-green-900/30 dark:text-green-400">
+            <span className="badge-success">
               <CheckCircle2 className="h-3 w-3" /> Complete
             </span>
           ) : (
-            <span className="inline-flex items-center rounded-full bg-[hsl(var(--muted))] px-2 py-0.5 text-xs font-medium text-[hsl(var(--muted-foreground))]">
+            <span className="badge-muted">
               Draft
             </span>
           )}
@@ -266,7 +348,7 @@ export function SetlistViewPage() {
       </div>
 
       {/* ── Live Mode Panel ─────────────────────────── */}
-      <div className="rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-4 space-y-3">
+      <div className="card card-body space-y-3">
         {liveMode === "off" ? (
           <div className="flex flex-wrap items-center gap-3">
             <Radio className="h-5 w-5 text-[hsl(var(--secondary))]" />
@@ -275,14 +357,14 @@ export function SetlistViewPage() {
             <button
               data-testid="start-conductor"
               onClick={() => setLiveMode("conductor")}
-              className="inline-flex items-center gap-1.5 rounded-md bg-[hsl(var(--secondary))] px-3 py-1.5 text-xs font-medium text-[hsl(var(--secondary-foreground))] hover:opacity-90 transition-opacity"
+              className="btn-primary btn-sm"
             >
               <Play className="h-3.5 w-3.5" /> Lead Session
             </button>
             <button
               data-testid="join-member"
               onClick={() => setLiveMode("member")}
-              className="inline-flex items-center gap-1.5 rounded-md border border-[hsl(var(--border))] px-3 py-1.5 text-xs hover:bg-[hsl(var(--muted))] transition-colors"
+              className="btn-outline btn-sm"
             >
               <Users className="h-3.5 w-3.5" /> Join Session
             </button>
@@ -325,7 +407,7 @@ export function SetlistViewPage() {
               <button
                 data-testid="leave-session"
                 onClick={handleLeaveLive}
-                className="inline-flex items-center gap-1.5 rounded-md border border-[hsl(var(--destructive))] px-3 py-1.5 text-xs text-[hsl(var(--destructive))] hover:bg-[hsl(var(--destructive))] hover:text-[hsl(var(--destructive-foreground))] transition-colors"
+                className="btn-destructive btn-sm"
               >
                 <LogOut className="h-3.5 w-3.5" /> Leave
               </button>
@@ -366,65 +448,132 @@ export function SetlistViewPage() {
 
       {/* Song list */}
       <div className="space-y-2">
-        <div className="flex items-center justify-between">
-          <h3 className="text-lg font-brand text-[hsl(var(--foreground))]">
+        <div className="section-header">
+          <h3 className="section-title">
             Songs ({songs.length})
           </h3>
-          <button
-            onClick={() => setShowAddSong(true)}
-            className="inline-flex items-center gap-2 rounded-md bg-[hsl(var(--secondary))] px-3 py-1.5 text-xs font-medium text-[hsl(var(--secondary-foreground))] hover:opacity-90 transition-opacity"
-          >
-            <Plus className="h-3.5 w-3.5" /> Add Song
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            {songs.length > 0 && (
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setShowExportMenu((value) => !value)}
+                  className="btn-outline btn-sm"
+                >
+                  <Download className="h-3.5 w-3.5" /> Export ZIP <ChevronDown className="h-3.5 w-3.5" />
+                </button>
+
+                {showExportMenu && (
+                  <div className="absolute right-0 z-20 mt-2 w-48 rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-1 shadow-lg">
+                    <button
+                      type="button"
+                      onClick={() => handleExportZip("chordpro")}
+                      className="flex w-full items-center rounded-lg px-3 py-2 text-left text-sm text-[hsl(var(--foreground))] hover:bg-[hsl(var(--muted))]"
+                    >
+                      ChordPro ZIP (.zip)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleExportZip("onsong")}
+                      className="flex w-full items-center rounded-lg px-3 py-2 text-left text-sm text-[hsl(var(--foreground))] hover:bg-[hsl(var(--muted))]"
+                    >
+                      OnSong ZIP (.zip)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleExportZip("text")}
+                      className="flex w-full items-center rounded-lg px-3 py-2 text-left text-sm text-[hsl(var(--foreground))] hover:bg-[hsl(var(--muted))]"
+                    >
+                      Plain Text ZIP (.zip)
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {canEdit && (
+              <button
+                onClick={() => setShowAddSong(true)}
+                className="btn-primary btn-sm"
+              >
+                <Plus className="h-3.5 w-3.5" /> Add Song
+              </button>
+            )}
+          </div>
         </div>
 
         {songs.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-[hsl(var(--border))] p-8 text-center text-sm text-[hsl(var(--muted-foreground))]">
-            <Music className="mx-auto h-10 w-10 mb-2" />
+          <div className="card-empty !p-8">
+            <Music className="mx-auto h-10 w-10 mb-2 text-[hsl(var(--muted-foreground))]" />
+            <p className="text-sm text-[hsl(var(--muted-foreground))]">
             No songs in this setlist.
-            <br />
-            <button
-              onClick={() => setShowAddSong(true)}
-              className="mt-2 text-[hsl(var(--secondary))] hover:underline"
-            >
-              Add a song
-            </button>
+            </p>
+            {canEdit && (
+              <button
+                onClick={() => setShowAddSong(true)}
+                className="link-accent mt-2"
+              >
+                Add a song
+              </button>
+            )}
           </div>
         ) : (
           <div
             ref={songListRef}
             onScroll={handleScroll}
-            className="divide-y divide-[hsl(var(--border))] rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card))]"
+            className="list-container"
           >
-            {songs.map((item, idx) => (
-              <div
-                key={item.id}
-                data-song-index={idx}
-                className={`flex items-center gap-3 p-3 transition-colors ${
-                  liveMode !== "off" && idx === conductor.currentSong
-                    ? "bg-[hsl(var(--secondary))]/10 ring-1 ring-inset ring-[hsl(var(--secondary))]/30"
-                    : ""
-                }`}
-              >
+            {songs.map((item, idx) => {
+              // Key compatibility indicator for transition from previous song
+              const prevSong = idx > 0 ? songs[idx - 1] : null;
+              const prevKey = prevSong ? (prevSong.key || prevSong.songKey) : null;
+              const curKey = item.key || item.songKey;
+              const dist = prevKey && curKey ? getKeyDistance(prevKey, curKey) : null;
+              const showKeyWarn = dist !== null && dist >= 5;
+
+              return (
+                <div key={item.id}>
+                  {/* Key transition warning between songs */}
+                  {showKeyWarn && (
+                    <div
+                      data-testid={`key-warning-${idx}`}
+                      className="flex items-center gap-1.5 px-3 py-1 text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 border-y border-amber-200 dark:border-amber-800/40"
+                    >
+                      <AlertTriangle className="h-3 w-3 shrink-0" />
+                      <span>
+                        Distant key change: {prevKey} → {curKey} ({dist} semitones)
+                      </span>
+                    </div>
+                  )}
+                  <div
+                    data-song-index={idx}
+                    className={`flex items-center gap-3 p-3 transition-colors ${
+                      liveMode !== "off" && idx === conductor.currentSong
+                        ? "bg-[hsl(var(--secondary))]/10 ring-1 ring-inset ring-[hsl(var(--secondary))]/30"
+                        : ""
+                    }`}
+                  >
                 {/* Reorder buttons */}
-                <div className="flex flex-col gap-0.5">
-                  <button
-                    onClick={() => handleMoveUp(idx)}
-                    disabled={idx === 0}
-                    className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] disabled:opacity-30"
-                    title="Move up"
-                  >
-                    ▲
-                  </button>
-                  <button
-                    onClick={() => handleMoveDown(idx)}
-                    disabled={idx === songs.length - 1}
-                    className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] disabled:opacity-30"
-                    title="Move down"
-                  >
-                    ▼
-                  </button>
-                </div>
+                {canEdit && (
+                  <div className="flex flex-col gap-0.5">
+                    <button
+                      onClick={() => handleMoveUp(idx)}
+                      disabled={idx === 0}
+                      className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] disabled:opacity-30"
+                      title="Move up"
+                    >
+                      ▲
+                    </button>
+                    <button
+                      onClick={() => handleMoveDown(idx)}
+                      disabled={idx === songs.length - 1}
+                      className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] disabled:opacity-30"
+                      title="Move down"
+                    >
+                      ▼
+                    </button>
+                  </div>
+                )}
 
                 {/* Position number */}
                 <span className="w-6 text-center text-xs text-[hsl(var(--muted-foreground))]">
@@ -433,7 +582,7 @@ export function SetlistViewPage() {
 
                 {/* Song info */}
                 <Link
-                  to={`/songs/${item.songId}`}
+                  to={item.variationId ? `/songs/${item.songId}?variation=${item.variationId}` : `/songs/${item.songId}`}
                   className="flex-1 min-w-0 hover:text-[hsl(var(--secondary))]"
                 >
                   <div className="font-medium truncate text-[hsl(var(--foreground))]">
@@ -441,6 +590,7 @@ export function SetlistViewPage() {
                   </div>
                   <div className="text-xs text-[hsl(var(--muted-foreground))]">
                     {[
+                      item.variationName ? `Variation: ${item.variationName}` : null,
                       item.key || item.songKey ? `Key: ${item.key || item.songKey}` : null,
                       item.songArtist,
                       item.songTempo ? `${item.songTempo} BPM` : null,
@@ -454,7 +604,7 @@ export function SetlistViewPage() {
                 {liveMode === "conductor" && idx !== conductor.currentSong && (
                   <button
                     onClick={() => conductor.goToSong(idx)}
-                    className="inline-flex items-center gap-1 rounded-md bg-[hsl(var(--secondary))] px-2 py-1 text-xs font-medium text-[hsl(var(--secondary-foreground))] hover:opacity-90 transition-opacity"
+                    className="btn-primary btn-xs"
                     title="Navigate to this song"
                   >
                     <Play className="h-3 w-3" /> Go
@@ -469,23 +619,27 @@ export function SetlistViewPage() {
                 )}
 
                 {/* Remove */}
-                <button
-                  onClick={() => handleRemoveSong(item.id)}
-                  className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--destructive))]"
-                  title="Remove from setlist"
-                >
-                  <X className="h-4 w-4" />
-                </button>
+                {canEdit && (
+                  <button
+                    onClick={() => handleRemoveSong(item.id)}
+                    className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--destructive))]"
+                    title="Remove from setlist"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                )}
               </div>
-            ))}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
 
       {/* Add Song Modal */}
       {showAddSong && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="w-full max-w-md rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-6 shadow-xl">
+        <div className="modal-backdrop">
+          <div className="modal-content max-w-md">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-brand text-[hsl(var(--foreground))]">Add Song</h3>
               <button
@@ -503,7 +657,7 @@ export function SetlistViewPage() {
               value={searchQ}
               onChange={(e) => setSearchQ(e.target.value)}
               placeholder="Search songs..."
-              className="w-full rounded-md border border-[hsl(var(--input))] bg-[hsl(var(--background))] px-3 py-2 text-sm text-[hsl(var(--foreground))] placeholder:text-[hsl(var(--muted-foreground))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))] mb-3"
+              className="input mb-3"
               autoFocus
             />
             <div className="max-h-60 overflow-y-auto divide-y divide-[hsl(var(--border))]">
@@ -532,6 +686,17 @@ export function SetlistViewPage() {
             </div>
           </div>
         </div>
+      )}
+      {/* Performance Mode Overlay */}
+      {performanceMode && (
+        <PerformanceMode
+          songs={songs}
+          songContents={songContents}
+          setlistName={setlist.name}
+          initialSongIndex={liveMode === "conductor" ? conductor.currentSong : 0}
+          onExit={() => setPerformanceMode(false)}
+          onSongChange={liveMode === "conductor" ? (idx) => conductor.goToSong(idx) : undefined}
+        />
       )}
     </div>
   );

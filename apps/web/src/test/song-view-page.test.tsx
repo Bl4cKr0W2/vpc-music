@@ -8,13 +8,25 @@ import { SongViewPage } from "@/pages/songs/SongViewPage";
 const mockGet = vi.fn();
 const mockDelete = vi.fn();
 const mockExportChordPro = vi.fn();
+const mockListSetlists = vi.fn();
+const mockAddToSetlist = vi.fn();
+const mockSetDefaultVariation = vi.fn();
 const mockNavigate = vi.fn();
+
+let mockAuthValue: any = {
+  user: { id: "u1", email: "admin@test.com", displayName: "Admin", role: "owner" },
+  activeOrg: { id: "org1", name: "Test Church", role: "admin" },
+};
 
 vi.mock("@/lib/api-client", () => ({
   songsApi: {
     get: (...args: any[]) => mockGet(...args),
     delete: (...args: any[]) => mockDelete(...args),
     exportChordPro: (...args: any[]) => mockExportChordPro(...args),
+  },
+  setlistsApi: {
+    list: (...args: any[]) => mockListSetlists(...args),
+    addSong: (...args: any[]) => mockAddToSetlist(...args),
   },
   shareApi: {
     create: vi.fn().mockResolvedValue({ shareUrl: "/shared/abc", shareToken: {} }),
@@ -34,6 +46,7 @@ vi.mock("@/lib/api-client", () => ({
   variationsApi: {
     create: vi.fn().mockResolvedValue({ variation: { id: "v1", songId: "song-1", name: "Acoustic", content: "[C]New", key: "C" } }),
     update: vi.fn().mockResolvedValue({ variation: { id: "v1", songId: "song-1", name: "Updated", content: "[D]Updated", key: "D" } }),
+    setDefault: (...args: any[]) => mockSetDefaultVariation(...args),
     delete: vi.fn().mockResolvedValue({ message: "ok" }),
   },
   stickyNotesApi: {
@@ -56,17 +69,27 @@ vi.mock("sonner", () => ({
   toast: { success: vi.fn(), error: vi.fn() },
 }));
 
+vi.mock("@/contexts/AuthContext", () => ({
+  useAuth: () => mockAuthValue,
+}));
+
 // Minimal mock for ChordProRenderer
 vi.mock("@/components/songs/ChordProRenderer", () => ({
-  ChordProRenderer: ({ content }: { content: string }) => (
-    <div data-testid="chordpro-renderer">{content}</div>
+  ChordProRenderer: ({ content, songKey, baseTranspose }: { content: string; songKey?: string | null; baseTranspose?: number }) => (
+    <div
+      data-testid="chordpro-renderer"
+      data-song-key={songKey ?? ""}
+      data-base-transpose={String(baseTranspose ?? 0)}
+    >
+      {content}
+    </div>
   ),
   AutoScroll: () => <div data-testid="auto-scroll">AutoScroll</div>,
 }));
 
-function renderPage(songId = "song-1") {
+function renderPage(songId = "song-1", search = "") {
   return render(
-    <MemoryRouter initialEntries={[`/songs/${songId}`]}>
+    <MemoryRouter initialEntries={[`/songs/${songId}${search}`]}>
       <Routes>
         <Route path="/songs/:id" element={<SongViewPage />} />
         <Route path="/songs" element={<div>Songs List</div>} />
@@ -79,6 +102,24 @@ describe("SongViewPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.spyOn(window, "confirm").mockReturnValue(true);
+    mockAuthValue = {
+      user: { id: "u1", email: "admin@test.com", displayName: "Admin", role: "owner" },
+      activeOrg: { id: "org1", name: "Test Church", role: "admin" },
+    };
+    mockSetDefaultVariation.mockResolvedValue({
+      song: {
+        id: "song-1",
+        title: "Amazing Grace",
+        key: "G",
+        tempo: 72,
+        artist: "Newton",
+        tags: "hymn",
+        content: "[G]Amazing grace",
+        defaultVariationId: "v1",
+      },
+    });
+    mockListSetlists.mockResolvedValue({ setlists: [{ id: "sl-1", name: "Sunday Service", category: "worship", songCount: 4 }] });
+    mockAddToSetlist.mockResolvedValue({ item: { id: "item-1", songId: "song-1", position: 0 } });
   });
 
   // ===================== POSITIVE =====================
@@ -87,9 +128,12 @@ describe("SongViewPage", () => {
     const mockSong = {
       id: "song-1",
       title: "Amazing Grace",
+      aka: "Grace Song, Old Hymn",
+      category: "Church",
       key: "G",
       tempo: 72,
       artist: "Newton",
+      shout: "Choir echoes",
       tags: "hymn",
       content: "[G]Amazing grace",
     };
@@ -100,8 +144,12 @@ describe("SongViewPage", () => {
       await waitFor(() => {
         expect(screen.getByText("Amazing Grace")).toBeInTheDocument();
         expect(screen.getByText("Newton")).toBeInTheDocument();
+        expect(screen.getByText("Category: Church")).toBeInTheDocument();
+        expect(screen.getByText("AKA: Grace Song, Old Hymn")).toBeInTheDocument();
+        expect(screen.getByText("Shout: Choir echoes")).toBeInTheDocument();
         expect(screen.getByText("Key: G")).toBeInTheDocument();
         expect(screen.getByText("72 BPM")).toBeInTheDocument();
+        expect(screen.getByLabelText("Tempo 72 BPM")).toBeInTheDocument();
         expect(screen.getByText("hymn")).toBeInTheDocument();
       });
     });
@@ -114,15 +162,49 @@ describe("SongViewPage", () => {
       });
     });
 
+    it("uses the carried search key as the displayed key", async () => {
+      mockGet.mockResolvedValue({ song: mockSong, variations: [] });
+      renderPage("song-1", "?key=A");
+
+      await waitFor(() => {
+        expect(screen.getByText("Key: A")).toBeInTheDocument();
+        expect(screen.getByTestId("chordpro-renderer")).toHaveAttribute("data-song-key", "G");
+        expect(screen.getByTestId("chordpro-renderer")).toHaveAttribute("data-base-transpose", "2");
+      });
+    });
+
     it("renders toolbar controls", async () => {
       mockGet.mockResolvedValue({ song: mockSong, variations: [] });
       renderPage();
       await waitFor(() => {
         expect(screen.getByText("Edit")).toBeInTheDocument();
+        expect(screen.getByText("Add to Setlist")).toBeInTheDocument();
         expect(screen.getByText("Export")).toBeInTheDocument();
         expect(screen.getByText("Print")).toBeInTheDocument();
         expect(screen.getByText("Delete")).toBeInTheDocument();
         expect(screen.getByText("Chords")).toBeInTheDocument();
+      });
+    });
+
+    it("adds the selected variation to a setlist with variation context", async () => {
+      const user = userEvent.setup();
+      mockGet.mockResolvedValue({
+        song: mockSong,
+        variations: [{ id: "v1", songId: "song-1", name: "Acoustic", content: "[C]Amazing grace", key: "C" }],
+      });
+      renderPage();
+
+      await user.click(await screen.findByRole("button", { name: /acoustic/i }));
+      await user.click(screen.getByRole("button", { name: /add to setlist/i }));
+      await user.click(await screen.findByRole("button", { name: /sunday service/i }));
+
+      await waitFor(() => {
+        expect(mockAddToSetlist).toHaveBeenCalledWith("sl-1", {
+          songId: "song-1",
+          variationId: "v1",
+          key: "C",
+          notes: "Variation: Acoustic",
+        });
       });
     });
 
@@ -157,6 +239,67 @@ describe("SongViewPage", () => {
       });
     });
 
+    it("uses the song default variation when none is explicitly selected", async () => {
+      mockGet.mockResolvedValue({
+        song: { ...mockSong, defaultVariationId: "v1" },
+        variations: [{ id: "v1", songId: "song-1", name: "Acoustic", content: "[C]Amazing grace", key: "C" }],
+      });
+      renderPage();
+
+      await waitFor(() => {
+        expect(screen.getByText(/default view/i)).toBeInTheDocument();
+        expect(screen.getByTestId("chordpro-renderer")).toHaveTextContent("[C]Amazing grace");
+        expect(screen.getByText("Edit").closest("a")).toHaveAttribute("href", "/songs/song-1/edit?variation=v1");
+      });
+    });
+
+    it("lets admins set the selected variation as default", async () => {
+      const user = userEvent.setup();
+      mockGet.mockResolvedValue({
+        song: mockSong,
+        variations: [{ id: "v1", songId: "song-1", name: "Acoustic", content: "[C]Amazing grace", key: "C" }],
+      });
+      renderPage();
+
+      await user.click(await screen.findByRole("button", { name: /acoustic/i }));
+      await user.click(screen.getByRole("button", { name: /make selected variation default/i }));
+
+      await waitFor(() => {
+        expect(mockSetDefaultVariation).toHaveBeenCalledWith("song-1", "v1");
+      });
+    });
+
+    it("opens the full page editor when clicking the variation pencil icon", async () => {
+      const user = userEvent.setup();
+      mockGet.mockResolvedValue({
+        song: mockSong,
+        variations: [{ id: "v1", songId: "song-1", name: "Acoustic", content: "[C]Amazing grace", key: "C" }],
+      });
+      renderPage();
+
+      await user.click(await screen.findByTitle("Open full variation editor"));
+
+      expect(mockNavigate).toHaveBeenCalledWith("/songs/song-1/edit?variation=v1");
+    });
+
+    it("does not show default controls for observers", async () => {
+      mockAuthValue = {
+        user: { id: "u2", email: "observer@test.com", displayName: "Observer", role: "member" },
+        activeOrg: { id: "org1", name: "Test Church", role: "observer" },
+      };
+      mockGet.mockResolvedValue({
+        song: { ...mockSong, defaultVariationId: "v1" },
+        variations: [{ id: "v1", songId: "song-1", name: "Acoustic", content: "[C]Amazing grace", key: "C" }],
+      });
+      renderPage();
+
+      await waitFor(() => {
+        expect(screen.getByText(/default view/i)).toBeInTheDocument();
+        expect(screen.queryByRole("button", { name: /make selected variation default/i })).not.toBeInTheDocument();
+        expect(screen.queryByRole("button", { name: /use original as default/i })).not.toBeInTheDocument();
+      });
+    });
+
     it("renders font size selector", async () => {
       mockGet.mockResolvedValue({ song: mockSong, variations: [] });
       renderPage();
@@ -181,7 +324,7 @@ describe("SongViewPage", () => {
     it("shows loading spinner initially", () => {
       mockGet.mockReturnValue(new Promise(() => {}));
       renderPage();
-      expect(document.querySelector(".animate-spin")).toBeInTheDocument();
+      expect(document.querySelector(".spinner")).toBeInTheDocument();
     });
 
     it("shows not found when song doesn't exist", async () => {

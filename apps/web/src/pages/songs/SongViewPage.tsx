@@ -1,16 +1,52 @@
 import { useState, useEffect, useRef } from "react";
 import { useParams, Link, useNavigate, useSearchParams } from "react-router-dom";
-import { songsApi, shareApi, songUsageApi, songHistoryApi, variationsApi, stickyNotesApi, type Song, type SongUsage, type SongVariation, type SongEdit, type StickyNote } from "@/lib/api-client";
+import { songsApi, shareApi, songUsageApi, songHistoryApi, variationsApi, stickyNotesApi, setlistsApi, type Song, type SongUsage, type SongVariation, type SongEdit, type StickyNote, type Setlist } from "@/lib/api-client";
 import { ChordProRenderer, AutoScroll, type ChordProRendererHandle } from "@/components/songs/ChordProRenderer";
 import { ShareManageDialog } from "@/components/songs/ShareManageDialog";
+import { TempoIndicator } from "@/components/songs/TempoIndicator";
+import { useAuth } from "@/contexts/AuthContext";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { ALL_KEYS } from "@vpc-music/shared";
 import { toast } from "sonner";
 import { ArrowLeft, Edit, Trash2, Download, Eye, EyeOff, Share2, Check, Copy, CalendarPlus, History, X, Printer, Settings2, Hash, ChevronDown, Layers, Plus, Pencil, FileText, StickyNote as StickyNoteIcon } from "lucide-react";
 
+const ENHARMONIC_KEY_MAP: Record<string, string> = {
+  "B#": "C",
+  "C#": "Db",
+  "D#": "Eb",
+  "E#": "F",
+  "F#": "Gb",
+  "G#": "Ab",
+  "A#": "Bb",
+  Cb: "B",
+  Fb: "E",
+};
+
+function normalizeSongKey(key: string | null | undefined) {
+  if (!key) return null;
+  const trimmed = key.trim();
+  return ENHARMONIC_KEY_MAP[trimmed] ?? trimmed;
+}
+
+function getTransposeSteps(fromKey: string | null | undefined, toKey: string | null | undefined) {
+  const normalizedFrom = normalizeSongKey(fromKey);
+  const normalizedTo = normalizeSongKey(toKey);
+
+  if (!normalizedFrom || !normalizedTo) return 0;
+
+  const fromIndex = ALL_KEYS.indexOf(normalizedFrom);
+  const toIndex = ALL_KEYS.indexOf(normalizedTo);
+
+  if (fromIndex === -1 || toIndex === -1) return 0;
+
+  const ascendingDistance = (toIndex - fromIndex + ALL_KEYS.length) % ALL_KEYS.length;
+  return ascendingDistance <= ALL_KEYS.length / 2 ? ascendingDistance : ascendingDistance - ALL_KEYS.length;
+}
+
 export function SongViewPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { user, activeOrg } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const [song, setSong] = useState<Song | null>(null);
   const [loading, setLoading] = useState(true);
@@ -29,6 +65,10 @@ export function SongViewPage() {
   const [loggingUsage, setLoggingUsage] = useState(false);
   const [showShareManage, setShowShareManage] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
+  const [showSetlistPicker, setShowSetlistPicker] = useState(false);
+  const [availableSetlists, setAvailableSetlists] = useState<Setlist[]>([]);
+  const [loadingSetlists, setLoadingSetlists] = useState(false);
+  const [addingToSetlistId, setAddingToSetlistId] = useState<string | null>(null);
   const [editHistory, setEditHistory] = useState<SongEdit[]>([]);
   const [showEditHistory, setShowEditHistory] = useState(false);
 
@@ -50,12 +90,17 @@ export function SongViewPage() {
   const [varContent, setVarContent] = useState("");
   const [savingVariation, setSavingVariation] = useState(false);
   const requestedVariationId = searchParams.get("variation");
+  const canSetDefaultVariation =
+    user?.role === "owner" || activeOrg?.role === "admin" || activeOrg?.role === "musician";
+  const canEdit = canSetDefaultVariation; // same permission level
 
   const selectVariation = (variationId: string | null) => {
     setActiveVariationId(variationId);
     const next = new URLSearchParams(searchParams);
     if (variationId) {
       next.set("variation", variationId);
+    } else if (song?.defaultVariationId) {
+      next.set("variation", "original");
     } else {
       next.delete("variation");
     }
@@ -85,12 +130,26 @@ export function SongViewPage() {
   }, [id]);
 
   useEffect(() => {
-    if (requestedVariationId && variations.some((variation) => variation.id === requestedVariationId)) {
+    if (requestedVariationId === "original") {
+      setActiveVariationId(null);
+    } else if (requestedVariationId && variations.some((variation) => variation.id === requestedVariationId)) {
       setActiveVariationId(requestedVariationId);
+    } else if (!requestedVariationId && song?.defaultVariationId && variations.some((variation) => variation.id === song.defaultVariationId)) {
+      setActiveVariationId(song.defaultVariationId);
     } else {
       setActiveVariationId(null);
     }
-  }, [requestedVariationId, variations]);
+  }, [requestedVariationId, song?.defaultVariationId, variations]);
+
+  useEffect(() => {
+    if (!showSetlistPicker) return;
+    setLoadingSetlists(true);
+    setlistsApi
+      .list()
+      .then((res) => setAvailableSetlists(res.setlists))
+      .catch(() => toast.error("Failed to load setlists"))
+      .finally(() => setLoadingSetlists(false));
+  }, [showSetlistPicker]);
 
   // Load usage history
   useEffect(() => {
@@ -199,15 +258,38 @@ export function SongViewPage() {
     }
   };
 
+  const handleAddToSetlist = async (setlistId: string) => {
+    if (!id) return;
+    setAddingToSetlistId(setlistId);
+    try {
+      await setlistsApi.addSong(setlistId, {
+        songId: id,
+        variationId: activeVariation?.id,
+        key: displayKey || undefined,
+        notes: activeVariation ? `Variation: ${activeVariation.name}` : undefined,
+      });
+      toast.success(
+        activeVariation
+          ? `Added ${song?.title} (${activeVariation.name}) to the setlist`
+          : `Added ${song?.title} to the setlist`,
+      );
+      setShowSetlistPicker(false);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to add to setlist");
+    } finally {
+      setAddingToSetlistId(null);
+    }
+  };
+
   const handleExport = async () => {
     if (!id) return;
     try {
-      const res = await songsApi.exportChordPro(id);
+      const res = await songsApi.exportChordPro(id, activeVariation?.id);
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `${song?.title || "song"}.cho`;
+      a.download = `${activeVariation ? `${song?.title || "song"} - ${activeVariation.name}` : song?.title || "song"}.cho`;
       a.click();
       URL.revokeObjectURL(url);
     } catch {
@@ -219,12 +301,29 @@ export function SongViewPage() {
   const handleExportOnSong = async () => {
     if (!id) return;
     try {
-      const res = await songsApi.exportOnSong(id);
+      const res = await songsApi.exportOnSong(id, activeVariation?.id);
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `${song?.title || "song"}.onsong`;
+      a.download = `${activeVariation ? `${song?.title || "song"} - ${activeVariation.name}` : song?.title || "song"}.onsong`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      toast.error("Export failed");
+    }
+    setShowExportMenu(false);
+  };
+
+  const handleExportText = async () => {
+    if (!id) return;
+    try {
+      const res = await songsApi.exportText(id, activeVariation?.id);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${activeVariation ? `${song?.title || "song"} - ${activeVariation.name}` : song?.title || "song"}.txt`;
       a.click();
       URL.revokeObjectURL(url);
     } catch {
@@ -235,7 +334,7 @@ export function SongViewPage() {
 
   const handleExportPdf = () => {
     if (!id) return;
-    window.open(songsApi.exportPdf(id), "_blank");
+    window.open(songsApi.exportPdf(id, activeVariation?.id), "_blank");
     setShowExportMenu(false);
   };
 
@@ -269,8 +368,14 @@ export function SongViewPage() {
   const activeVariation = activeVariationId
     ? variations.find((v) => v.id === activeVariationId) ?? null
     : null;
+  const defaultVariation = song?.defaultVariationId
+    ? variations.find((v) => v.id === song.defaultVariationId) ?? null
+    : null;
   const displayContent = activeVariation ? activeVariation.content : song?.content ?? "";
-  const displayKey = activeVariation?.key ?? song?.key;
+  const originalKey = activeVariation?.key ?? song?.key;
+  const requestedSearchKey = normalizeSongKey(searchParams.get("key"));
+  const displayKey = requestedSearchKey && ALL_KEYS.includes(requestedSearchKey) ? requestedSearchKey : originalKey;
+  const baseTranspose = getTransposeSteps(originalKey, displayKey);
 
   const openNewVariation = () => {
     setEditingVariation(null);
@@ -281,11 +386,8 @@ export function SongViewPage() {
   };
 
   const openEditVariation = (v: SongVariation) => {
-    setEditingVariation(v);
-    setVarName(v.name);
-    setVarKey(v.key || "");
-    setVarContent(v.content);
-    setShowVariationForm(true);
+    if (!id) return;
+    navigate(`/songs/${id}/edit?variation=${v.id}`);
   };
 
   const handleSaveVariation = async () => {
@@ -335,19 +437,34 @@ export function SongViewPage() {
     }
   };
 
+  const handleSetDefaultVariation = async (variationId: string | null) => {
+    if (!id) return;
+    try {
+      const res = await variationsApi.setDefault(id, variationId);
+      setSong(res.song);
+      toast.success(
+        variationId
+          ? "Default variation updated"
+          : "Original version is now the default"
+      );
+    } catch (err: any) {
+      toast.error(err.message || "Failed to update default variation");
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-[hsl(var(--muted))] border-t-[hsl(var(--secondary))]" />
+        <div className="spinner" />
       </div>
     );
   }
 
   if (!song) {
     return (
-      <div className="space-y-4 text-center py-20">
+      <div className="card-empty space-y-4">
         <p className="text-[hsl(var(--muted-foreground))]">Song not found.</p>
-        <Link to="/songs" className="text-sm text-[hsl(var(--secondary))] hover:underline">
+        <Link to="/songs" className="link-accent">
           Back to songs
         </Link>
       </div>
@@ -360,7 +477,7 @@ export function SongViewPage() {
       <div className="flex flex-wrap items-center gap-3 print-hidden">
         <Link
           to="/songs"
-          className="inline-flex items-center gap-1 text-sm text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]"
+          className="link-muted inline-flex items-center gap-1"
         >
           <ArrowLeft className="h-4 w-4" /> Songs
         </Link>
@@ -368,7 +485,7 @@ export function SongViewPage() {
         <AutoScroll containerRef={scrollRef} />
         <button
           onClick={() => setShowChords((v) => !v)}
-          className="inline-flex items-center gap-1.5 rounded-md border border-[hsl(var(--border))] px-3 py-1.5 text-xs hover:bg-[hsl(var(--muted))] transition-colors"
+          className="btn-outline btn-sm"
           title={showChords ? "Hide chords" : "Show chords"}
         >
           {showChords ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
@@ -377,10 +494,10 @@ export function SongViewPage() {
         {showChords && displayKey && (
           <button
             onClick={() => setNashville((v) => !v)}
-            className={`inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs transition-colors ${
+            className={`btn-sm ${
               nashville
-                ? "border-[hsl(var(--secondary))] bg-[hsl(var(--secondary))] text-[hsl(var(--secondary-foreground))]"
-                : "border-[hsl(var(--border))] hover:bg-[hsl(var(--muted))]"
+                ? "btn-primary"
+                : "btn-outline"
             }`}
             title={nashville ? "Show chord names" : "Show Nashville numbers"}
           >
@@ -391,7 +508,7 @@ export function SongViewPage() {
         <select
           value={fontSize}
           onChange={(e) => setFontSize(Number(e.target.value))}
-          className="rounded-md border border-[hsl(var(--input))] bg-[hsl(var(--background))] px-2 py-1.5 text-xs"
+          className="select btn-sm w-auto"
           title="Font size"
         >
           {[12, 14, 16, 18, 20, 24].map((s) => (
@@ -400,43 +517,58 @@ export function SongViewPage() {
             </option>
           ))}
         </select>
-        <button
-          onClick={shareUrl ? handleCopyLink : handleShare}
-          disabled={sharing}
-          className="inline-flex items-center gap-1.5 rounded-md border border-[hsl(var(--border))] px-3 py-1.5 text-xs hover:bg-[hsl(var(--muted))] transition-colors disabled:opacity-50"
-          title="Generate a read-only share link"
-        >
-          {copied ? (
-            <Check className="h-3.5 w-3.5 text-green-500" />
-          ) : shareUrl ? (
-            <Copy className="h-3.5 w-3.5" />
-          ) : (
-            <Share2 className="h-3.5 w-3.5" />
-          )}
-          {sharing ? "Sharing..." : copied ? "Copied!" : shareUrl ? "Copy Link" : "Share"}
-        </button>
-        <button
-          onClick={() => setShowShareManage(true)}
-          className="inline-flex items-center gap-1.5 rounded-md border border-[hsl(var(--border))] px-3 py-1.5 text-xs hover:bg-[hsl(var(--muted))] transition-colors"
-          title="Manage share links"
-        >
-          <Settings2 className="h-3.5 w-3.5" /> Links
-        </button>
-        <Link
-          to={activeVariationId ? `/songs/${id}/edit?variation=${activeVariationId}` : `/songs/${id}/edit`}
-          className="inline-flex items-center gap-1.5 rounded-md border border-[hsl(var(--border))] px-3 py-1.5 text-xs hover:bg-[hsl(var(--muted))] transition-colors"
-        >
-          <Edit className="h-3.5 w-3.5" /> Edit
-        </Link>
+        {canEdit && (
+          <button
+            onClick={shareUrl ? handleCopyLink : handleShare}
+            disabled={sharing}
+            className="btn-outline btn-sm"
+            title="Generate a read-only share link"
+          >
+            {copied ? (
+              <Check className="h-3.5 w-3.5 text-green-500" />
+            ) : shareUrl ? (
+              <Copy className="h-3.5 w-3.5" />
+            ) : (
+              <Share2 className="h-3.5 w-3.5" />
+            )}
+            {sharing ? "Sharing..." : copied ? "Copied!" : shareUrl ? "Copy Link" : "Share"}
+          </button>
+        )}
+        {canEdit && (
+          <button
+            onClick={() => setShowShareManage(true)}
+            className="btn-outline btn-sm"
+            title="Manage share links"
+          >
+            <Settings2 className="h-3.5 w-3.5" /> Links
+          </button>
+        )}
+        {canEdit && (
+          <Link
+            to={activeVariationId ? `/songs/${id}/edit?variation=${activeVariationId}` : `/songs/${id}/edit`}
+            className="btn-outline btn-sm"
+          >
+            <Edit className="h-3.5 w-3.5" /> Edit
+          </Link>
+        )}
+        {canEdit && (
+          <button
+            onClick={() => setShowSetlistPicker(true)}
+            className="btn-outline btn-sm"
+            title="Add this song to a setlist"
+          >
+            <Plus className="h-3.5 w-3.5" /> Add to Setlist
+          </button>
+        )}
         <div className="relative">
           <button
             onClick={() => setShowExportMenu(!showExportMenu)}
-            className="inline-flex items-center gap-1.5 rounded-md border border-[hsl(var(--border))] px-3 py-1.5 text-xs hover:bg-[hsl(var(--muted))] transition-colors"
+            className="btn-outline btn-sm"
           >
             <Download className="h-3.5 w-3.5" /> Export <ChevronDown className="h-3 w-3" />
           </button>
           {showExportMenu && (
-            <div className="absolute right-0 top-full mt-1 z-10 w-44 rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--card))] py-1 shadow-lg">
+            <div className="absolute right-0 top-full mt-1 z-10 w-44 card card-body py-1 !p-0">
               <button
                 onClick={handleExport}
                 className="w-full px-3 py-1.5 text-left text-xs hover:bg-[hsl(var(--muted))] transition-colors"
@@ -450,6 +582,12 @@ export function SongViewPage() {
                 OnSong (.onsong)
               </button>
               <button
+                onClick={handleExportText}
+                className="w-full px-3 py-1.5 text-left text-xs hover:bg-[hsl(var(--muted))] transition-colors"
+              >
+                Plain Text (.txt)
+              </button>
+              <button
                 onClick={handleExportPdf}
                 className="w-full px-3 py-1.5 text-left text-xs hover:bg-[hsl(var(--muted))] transition-colors"
               >
@@ -458,31 +596,35 @@ export function SongViewPage() {
             </div>
           )}
         </div>
-        <button
-          onClick={() => setShowUsageForm(true)}
-          className="inline-flex items-center gap-1.5 rounded-md bg-[hsl(var(--secondary))] px-3 py-1.5 text-xs font-medium text-[hsl(var(--secondary-foreground))] hover:opacity-90 transition-opacity"
-          title="Log when this song was used in a service"
-        >
-          <CalendarPlus className="h-3.5 w-3.5" /> Log Usage
-        </button>
+        {canEdit && (
+          <button
+            onClick={() => setShowUsageForm(true)}
+            className="btn-primary btn-sm"
+            title="Log when this song was used in a service"
+          >
+            <CalendarPlus className="h-3.5 w-3.5" /> Log Usage
+          </button>
+        )}
         <button
           onClick={() => window.print()}
-          className="inline-flex items-center gap-1.5 rounded-md border border-[hsl(var(--border))] px-3 py-1.5 text-xs hover:bg-[hsl(var(--muted))] transition-colors"
+          className="btn-outline btn-sm"
           title="Print chord chart"
         >
           <Printer className="h-3.5 w-3.5" /> Print
         </button>
-        <button
-          onClick={handleDelete}
-          className="inline-flex items-center gap-1.5 rounded-md border border-[hsl(var(--destructive))] px-3 py-1.5 text-xs text-[hsl(var(--destructive))] hover:bg-[hsl(var(--destructive))] hover:text-[hsl(var(--destructive-foreground))] transition-colors"
-        >
-          <Trash2 className="h-3.5 w-3.5" /> Delete
-        </button>
+        {canEdit && (
+          <button
+            onClick={handleDelete}
+            className="btn-destructive btn-sm"
+          >
+            <Trash2 className="h-3.5 w-3.5" /> Delete
+          </button>
+        )}
       </div>
 
       {/* Song metadata */}
       <div className="space-y-1 print-meta">
-        <h2 className="text-2xl font-brand text-[hsl(var(--foreground))]">
+        <h2 className="page-title">
           {song.title}
           {activeVariation && (
             <span className="ml-2 text-base font-normal text-[hsl(var(--secondary))]">
@@ -492,8 +634,11 @@ export function SongViewPage() {
         </h2>
         <div className="flex flex-wrap gap-3 text-sm text-[hsl(var(--muted-foreground))]">
           {song.artist && <span>{song.artist}</span>}
+          {song.category && <span>Category: {song.category}</span>}
+          {song.aka && <span>AKA: {song.aka}</span>}
+          {song.shout && <span>Shout: {song.shout}</span>}
           {displayKey && <span>Key: {displayKey}</span>}
-          {song.tempo && <span>{song.tempo} BPM</span>}
+          {song.tempo && <TempoIndicator tempo={song.tempo} />}
           {song.tags && <span>{song.tags}</span>}
         </div>
       </div>
@@ -506,11 +651,12 @@ export function SongViewPage() {
             onClick={() => selectVariation(null)}
             className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
               !activeVariationId
-                ? "bg-[hsl(var(--secondary))] text-[hsl(var(--secondary-foreground))]"
-                : "border border-[hsl(var(--border))] hover:bg-[hsl(var(--muted))]"
+                ? "btn-primary !py-1 !px-3"
+                : "btn-outline !py-1 !px-3"
             }`}
           >
             Original
+            {!song.defaultVariationId && <span className="ml-1 opacity-70">• Default</span>}
           </button>
           {variations.map((v) => (
             <div key={v.id} className="group relative flex items-center">
@@ -518,53 +664,83 @@ export function SongViewPage() {
                 onClick={() => selectVariation(v.id)}
                 className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
                   activeVariationId === v.id
-                    ? "bg-[hsl(var(--secondary))] text-[hsl(var(--secondary-foreground))]"
-                    : "border border-[hsl(var(--border))] hover:bg-[hsl(var(--muted))]"
+                    ? "btn-primary !py-1 !px-3"
+                    : "btn-outline !py-1 !px-3"
                 }`}
               >
                 {v.name}
                 {v.key && v.key !== song.key && (
                   <span className="ml-1 opacity-60">({v.key})</span>
                 )}
+                {song.defaultVariationId === v.id && (
+                  <span className="ml-1 opacity-70">• Default</span>
+                )}
               </button>
-              <div className="hidden group-hover:flex items-center gap-0.5 ml-1">
-                <button
-                  onClick={() => openEditVariation(v)}
-                  className="rounded p-0.5 text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] transition-colors"
-                  title="Edit variation"
-                >
-                  <Pencil className="h-3 w-3" />
-                </button>
-                <button
-                  onClick={() => handleDeleteVariation(v.id)}
-                  className="rounded p-0.5 text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--destructive))] transition-colors"
-                  title="Delete variation"
-                >
-                  <X className="h-3 w-3" />
-                </button>
-              </div>
+              {canEdit && (
+                <div className="hidden group-hover:flex items-center gap-0.5 ml-1">
+                  <button
+                    onClick={() => openEditVariation(v)}
+                    className="rounded p-0.5 text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] transition-colors"
+                    title="Open full variation editor"
+                    aria-label="Open full variation editor"
+                  >
+                    <Pencil className="h-3 w-3" />
+                  </button>
+                  <button
+                    onClick={() => handleDeleteVariation(v.id)}
+                    className="rounded p-0.5 text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--destructive))] transition-colors"
+                    title="Delete variation"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+              )}
             </div>
           ))}
-          <button
-            onClick={openNewVariation}
-            className="inline-flex items-center gap-1 rounded-md border border-dashed border-[hsl(var(--border))] px-2.5 py-1 text-xs text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--muted))] hover:text-[hsl(var(--foreground))] transition-colors"
-            title="Create a new variation"
-          >
-            <Plus className="h-3 w-3" /> Variation
-          </button>
+          {canEdit && (
+            <button
+              onClick={openNewVariation}
+              className="btn-outline btn-sm border-dashed"
+              title="Create a new variation"
+            >
+              <Plus className="h-3 w-3" /> Variation
+            </button>
+          )}
         </div>
       )}
+
+      <div className="card card-body flex flex-wrap items-center gap-2 print-hidden">
+        <span className="text-xs font-semibold uppercase tracking-wide text-[hsl(var(--muted-foreground))]">
+          Default View
+        </span>
+        <span className="badge-muted">
+          {defaultVariation ? defaultVariation.name : "Original"}
+        </span>
+        {canSetDefaultVariation && (
+          activeVariation?.id === song.defaultVariationId || (!activeVariation && !song.defaultVariationId) ? (
+            <span className="text-xs text-[hsl(var(--muted-foreground))]">Current selection is already the default.</span>
+          ) : (
+            <button
+              onClick={() => handleSetDefaultVariation(activeVariation?.id ?? null)}
+              className="btn-outline btn-sm"
+            >
+              {activeVariation ? "Make Selected Variation Default" : "Use Original as Default"}
+            </button>
+          )
+        )}
+      </div>
 
       {/* ChordPro renderer */}
       <div
         ref={scrollRef}
-        className="rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-6 overflow-y-auto print-sheet"
+        className="card card-body-lg overflow-y-auto print-sheet"
         style={{ maxHeight: "calc(100vh - 280px)" }}
       >
         <ChordProRenderer
           ref={chordProRef}
           content={displayContent}
-          songKey={displayKey}
+          songKey={originalKey}
+          baseTranspose={baseTranspose}
           showChords={showChords}
           nashville={nashville}
           fontSize={fontSize}
@@ -574,10 +750,10 @@ export function SongViewPage() {
       {/* Usage History */}
       {usages.length > 0 && (
         <div className="space-y-2 print-hidden">
-          <h3 className="flex items-center gap-2 text-lg font-brand text-[hsl(var(--foreground))]">
-            <History className="h-4 w-4" /> Usage History
+          <h3 className="section-title">
+            <History className="section-title-icon" /> Usage History
           </h3>
-          <div className="divide-y divide-[hsl(var(--border))] rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card))]">
+          <div className="list-container">
             {usages.map((u) => (
               <div key={u.id} className="flex items-center justify-between px-4 py-2.5 group">
                 <div>
@@ -595,13 +771,15 @@ export function SongViewPage() {
                     </span>
                   )}
                 </div>
-                <button
-                  onClick={() => handleDeleteUsage(u.id)}
-                  className="opacity-0 group-hover:opacity-100 text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--destructive))] transition-all"
-                  title="Remove usage record"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
+                {canEdit && (
+                  <button
+                    onClick={() => handleDeleteUsage(u.id)}
+                    className="opacity-0 group-hover:opacity-100 text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--destructive))] transition-all"
+                    title="Remove usage record"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
               </div>
             ))}
           </div>
@@ -613,16 +791,16 @@ export function SongViewPage() {
         <div className="space-y-2 print-hidden">
           <button
             onClick={() => setShowEditHistory((v) => !v)}
-            className="flex items-center gap-2 text-lg font-brand text-[hsl(var(--foreground))] hover:text-[hsl(var(--secondary))] transition-colors"
+            className="section-title hover:text-[hsl(var(--secondary))] transition-colors cursor-pointer"
           >
-            <FileText className="h-4 w-4" /> Edit History
+            <FileText className="section-title-icon" /> Edit History
             <ChevronDown className={`h-4 w-4 transition-transform ${showEditHistory ? "rotate-180" : ""}`} />
             <span className="text-xs font-normal text-[hsl(var(--muted-foreground))]">
               ({editHistory.length} change{editHistory.length !== 1 ? "s" : ""})
             </span>
           </button>
           {showEditHistory && (
-            <div className="divide-y divide-[hsl(var(--border))] rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card))] max-h-64 overflow-y-auto">
+            <div className="list-container max-h-64 overflow-y-auto">
               {editHistory.map((edit) => (
                 <div key={edit.id} className="px-4 py-2.5 text-sm">
                   <div className="flex items-center justify-between">
@@ -665,25 +843,27 @@ export function SongViewPage() {
       {/* Sticky Notes */}
       <div className="space-y-2 print-hidden">
         <div className="flex items-center justify-between">
-          <h3 className="flex items-center gap-2 text-lg font-brand text-[hsl(var(--foreground))]">
-            <StickyNoteIcon className="h-4 w-4" /> Notes
+          <h3 className="section-title">
+            <StickyNoteIcon className="section-title-icon" /> Notes
             {stickyNotes.length > 0 && (
               <span className="text-xs font-normal text-[hsl(var(--muted-foreground))]">
                 ({stickyNotes.length})
               </span>
             )}
           </h3>
-          <button
-            onClick={() => {
-              setEditingNote(null);
-              setNoteContent("");
-              setNoteColor("yellow");
-              setShowNoteForm(true);
-            }}
-            className="inline-flex items-center gap-1 rounded-md border border-dashed border-[hsl(var(--border))] px-2.5 py-1 text-xs text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--muted))] hover:text-[hsl(var(--foreground))] transition-colors"
-          >
-            <Plus className="h-3 w-3" /> Add Note
-          </button>
+          {canEdit && (
+            <button
+              onClick={() => {
+                setEditingNote(null);
+                setNoteContent("");
+                setNoteColor("yellow");
+                setShowNoteForm(true);
+              }}
+              className="btn-outline btn-sm border-dashed"
+            >
+              <Plus className="h-3 w-3" /> Add Note
+            </button>
+          )}
         </div>
         {stickyNotes.length > 0 && (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -712,22 +892,24 @@ export function SongViewPage() {
                       })}
                     </p>
                   )}
-                  <div className="absolute top-1.5 right-1.5 hidden group-hover:flex items-center gap-0.5">
-                    <button
-                      onClick={() => openEditNote(note)}
-                      className="rounded p-1 text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] hover:bg-black/10 transition-colors"
-                      title="Edit note"
-                    >
-                      <Pencil className="h-3 w-3" />
-                    </button>
-                    <button
-                      onClick={() => handleDeleteNote(note.id)}
-                      className="rounded p-1 text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--destructive))] hover:bg-black/10 transition-colors"
-                      title="Delete note"
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
-                  </div>
+                  {canEdit && (
+                    <div className="absolute top-1.5 right-1.5 hidden group-hover:flex items-center gap-0.5">
+                      <button
+                        onClick={() => openEditNote(note)}
+                        className="rounded p-1 text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] hover:bg-black/10 transition-colors"
+                        title="Edit note"
+                      >
+                        <Pencil className="h-3 w-3" />
+                      </button>
+                      <button
+                        onClick={() => handleDeleteNote(note.id)}
+                        className="rounded p-1 text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--destructive))] hover:bg-black/10 transition-colors"
+                        title="Delete note"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -740,10 +922,79 @@ export function SongViewPage() {
         )}
       </div>
 
+      {/* Quick Add to Setlist */}
+      {showSetlistPicker && (
+        <div className="modal-backdrop print-hidden">
+          <div className="modal-content max-w-md">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <div>
+                <h3 className="text-lg font-brand text-[hsl(var(--foreground))]">Add to Setlist</h3>
+                <p className="text-xs text-[hsl(var(--muted-foreground))]">
+                  {activeVariation
+                    ? `This will add the ${activeVariation.name} variation with its key to the chosen setlist.`
+                    : "This will add the original song to the chosen setlist."}
+                </p>
+              </div>
+              <button
+                onClick={() => setShowSetlistPicker(false)}
+                className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]"
+                title="Close"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="mb-3 rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--muted))] px-3 py-2 text-sm">
+              <div className="font-medium text-[hsl(var(--foreground))]">{song.title}</div>
+              <div className="text-xs text-[hsl(var(--muted-foreground))]">
+                {activeVariation
+                  ? `Variation: ${activeVariation.name}${displayKey ? ` · Key: ${displayKey}` : ""}`
+                  : displayKey
+                    ? `Original song · Key: ${displayKey}`
+                    : "Original song"}
+              </div>
+            </div>
+
+            <div className="max-h-72 overflow-y-auto divide-y divide-[hsl(var(--border))] rounded-md border border-[hsl(var(--border))]">
+              {loadingSetlists ? (
+                <div className="py-6 text-center text-sm text-[hsl(var(--muted-foreground))]">Loading setlists…</div>
+              ) : availableSetlists.length === 0 ? (
+                <div className="space-y-2 px-4 py-6 text-center text-sm text-[hsl(var(--muted-foreground))]">
+                  <p>No setlists yet.</p>
+                  <Link
+                    to="/setlists/new"
+                    onClick={() => setShowSetlistPicker(false)}
+                    className="text-[hsl(var(--secondary))] hover:underline"
+                  >
+                    Create a setlist
+                  </Link>
+                </div>
+              ) : (
+                availableSetlists.map((setlist) => (
+                  <button
+                    key={setlist.id}
+                    onClick={() => handleAddToSetlist(setlist.id)}
+                    disabled={addingToSetlistId === setlist.id}
+                    className="w-full px-4 py-3 text-left hover:bg-[hsl(var(--muted))] transition-colors disabled:opacity-60"
+                  >
+                    <div className="font-medium text-sm text-[hsl(var(--foreground))]">{setlist.name}</div>
+                    <div className="text-xs text-[hsl(var(--muted-foreground))]">
+                      {[setlist.category, setlist.songCount !== undefined ? `${setlist.songCount} song${setlist.songCount === 1 ? "" : "s"}` : null]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </div>
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Sticky Note Form Modal */}
       {showNoteForm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 print-hidden">
-          <div className="w-full max-w-sm rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-6 shadow-xl">
+        <div className="modal-backdrop print-hidden">
+          <div className="modal-content max-w-sm">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-brand text-[hsl(var(--foreground))]">
                 {editingNote ? "Edit Note" : "New Note"}
@@ -765,7 +1016,7 @@ export function SongViewPage() {
                   onChange={(e) => setNoteContent(e.target.value)}
                   rows={4}
                   placeholder="Add your note..."
-                  className="w-full rounded-md border border-[hsl(var(--input))] bg-[hsl(var(--background))] px-3 py-2 text-sm text-[hsl(var(--foreground))] placeholder:text-[hsl(var(--muted-foreground))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))]"
+                  className="input"
                   data-testid="note-content-input"
                 />
               </div>
@@ -801,7 +1052,7 @@ export function SongViewPage() {
               <button
                 onClick={handleSaveNote}
                 disabled={savingNote || !noteContent.trim()}
-                className="w-full rounded-md bg-[hsl(var(--secondary))] px-4 py-2 text-sm font-medium text-[hsl(var(--secondary-foreground))] hover:opacity-90 transition-opacity disabled:opacity-50"
+                className="btn-primary w-full"
               >
                 {savingNote ? "Saving..." : editingNote ? "Update Note" : "Add Note"}
               </button>
@@ -812,8 +1063,8 @@ export function SongViewPage() {
 
       {/* Log Usage Modal */}
       {showUsageForm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 print-hidden">
-          <div className="w-full max-w-sm rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-6 shadow-xl">
+        <div className="modal-backdrop print-hidden">
+          <div className="modal-content max-w-sm">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-brand text-[hsl(var(--foreground))]">Log Song Usage</h3>
               <button
@@ -832,7 +1083,7 @@ export function SongViewPage() {
                   type="date"
                   value={usageDate}
                   onChange={(e) => setUsageDate(e.target.value)}
-                  className="w-full rounded-md border border-[hsl(var(--input))] bg-[hsl(var(--background))] px-3 py-2 text-sm text-[hsl(var(--foreground))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))]"
+                  className="input"
                 />
               </div>
               <div>
@@ -844,13 +1095,13 @@ export function SongViewPage() {
                   value={usageNotes}
                   onChange={(e) => setUsageNotes(e.target.value)}
                   placeholder="e.g. Sunday morning service"
-                  className="w-full rounded-md border border-[hsl(var(--input))] bg-[hsl(var(--background))] px-3 py-2 text-sm text-[hsl(var(--foreground))] placeholder:text-[hsl(var(--muted-foreground))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))]"
+                  className="input"
                 />
               </div>
               <button
                 onClick={handleLogUsage}
                 disabled={loggingUsage || !usageDate}
-                className="w-full rounded-md bg-[hsl(var(--secondary))] px-4 py-2 text-sm font-medium text-[hsl(var(--secondary-foreground))] hover:opacity-90 transition-opacity disabled:opacity-50"
+                className="btn-primary w-full"
               >
                 {loggingUsage ? "Logging..." : "Log Usage"}
               </button>
@@ -869,8 +1120,8 @@ export function SongViewPage() {
 
       {/* Variation Create/Edit Modal */}
       {showVariationForm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 print-hidden">
-          <div className="w-full max-w-lg rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-6 shadow-xl max-h-[90vh] overflow-y-auto">
+        <div className="modal-backdrop print-hidden">
+          <div className="modal-content max-w-lg max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-brand text-[hsl(var(--foreground))]">
                 {editingVariation ? "Edit Variation" : "New Variation"}
@@ -893,7 +1144,7 @@ export function SongViewPage() {
                     value={varName}
                     onChange={(e) => setVarName(e.target.value)}
                     placeholder="e.g. Acoustic, My version"
-                    className="w-full rounded-md border border-[hsl(var(--input))] bg-[hsl(var(--background))] px-3 py-2 text-sm text-[hsl(var(--foreground))] placeholder:text-[hsl(var(--muted-foreground))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))]"
+                    className="input"
                     data-testid="variation-name-input"
                   />
                 </div>
@@ -904,7 +1155,7 @@ export function SongViewPage() {
                   <select
                     value={varKey}
                     onChange={(e) => setVarKey(e.target.value)}
-                    className="w-full rounded-md border border-[hsl(var(--input))] bg-[hsl(var(--background))] px-3 py-2 text-sm text-[hsl(var(--foreground))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))]"
+                    className="select"
                     data-testid="variation-key-select"
                   >
                     <option value="">Same as original</option>
@@ -924,7 +1175,7 @@ export function SongViewPage() {
                   value={varContent}
                   onChange={(e) => setVarContent(e.target.value)}
                   rows={12}
-                  className="w-full rounded-md border border-[hsl(var(--input))] bg-[hsl(var(--background))] px-3 py-2 font-mono text-sm text-[hsl(var(--foreground))] placeholder:text-[hsl(var(--muted-foreground))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))]"
+                  className="input font-mono"
                   data-testid="variation-content-textarea"
                 />
               </div>
@@ -932,7 +1183,7 @@ export function SongViewPage() {
                 <button
                   onClick={handleSaveVariation}
                   disabled={savingVariation || !varName.trim() || !varContent.trim()}
-                  className="inline-flex items-center gap-2 rounded-md bg-[hsl(var(--secondary))] px-6 py-2 text-sm font-medium text-[hsl(var(--secondary-foreground))] hover:opacity-90 transition-opacity disabled:opacity-50"
+                  className="btn-primary"
                   data-testid="variation-save-btn"
                 >
                   {savingVariation
@@ -943,7 +1194,7 @@ export function SongViewPage() {
                 </button>
                 <button
                   onClick={() => setShowVariationForm(false)}
-                  className="inline-flex items-center rounded-md border border-[hsl(var(--border))] px-6 py-2 text-sm hover:bg-[hsl(var(--muted))] transition-colors"
+                  className="btn-outline"
                 >
                   Cancel
                 </button>

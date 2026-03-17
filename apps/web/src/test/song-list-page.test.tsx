@@ -1,17 +1,43 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { SongListPage } from "@/pages/songs/SongListPage";
 
 // ---------- Mocks ----------
 const mockList = vi.fn();
+const mockExportZip = vi.fn();
+const mockGetGroups = vi.fn();
+const mockGetCategories = vi.fn();
+const mockGetTags = vi.fn();
+const mockCreateGroup = vi.fn();
+const mockAddSongsToGroup = vi.fn();
 vi.mock("@/lib/api-client", () => ({
-  songsApi: { list: (...args: any[]) => mockList(...args) },
+  songsApi: {
+    list: (...args: any[]) => mockList(...args),
+    getGroups: (...args: any[]) => mockGetGroups(...args),
+    getCategories: (...args: any[]) => mockGetCategories(...args),
+    getTags: (...args: any[]) => mockGetTags(...args),
+    createGroup: (...args: any[]) => mockCreateGroup(...args),
+    addSongsToGroup: (...args: any[]) => mockAddSongsToGroup(...args),
+    exportZip: (...args: any[]) => mockExportZip(...args),
+  },
+}));
+
+vi.mock("sonner", () => ({
+  toast: { success: vi.fn(), error: vi.fn() },
 }));
 
 vi.mock("@vpc-music/shared", () => ({
   ALL_KEYS: ["C", "D", "E", "F", "G", "A", "B"],
+}));
+
+let mockAuthValue: any = {
+  user: { id: "u1", email: "test@test.com", displayName: "Test", role: "owner" },
+  activeOrg: { id: "org1", name: "Test Church", role: "admin" },
+};
+vi.mock("@/contexts/AuthContext", () => ({
+  useAuth: () => mockAuthValue,
 }));
 
 function renderPage() {
@@ -26,10 +52,40 @@ describe("SongListPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useFakeTimers({ shouldAdvanceTime: true });
+    mockGetGroups.mockResolvedValue({ groups: [{ id: "group-1", name: "Wedding Songs", songCount: 2 }] });
+    mockGetCategories.mockResolvedValue({ categories: ["Church", "Wedding"] });
+    mockGetTags.mockResolvedValue({ tags: ["hymn", "worship", "christmas"] });
+    mockCreateGroup.mockResolvedValue({ group: { id: "group-2", name: "Choir Rehearsal", songCount: 0 } });
+    mockAddSongsToGroup.mockResolvedValue({ addedSongIds: ["1"], skippedSongIds: [] });
+    mockExportZip.mockResolvedValue({ ok: true, blob: () => Promise.resolve(new Blob(["zip"])) });
+    Object.defineProperty(URL, "createObjectURL", {
+      writable: true,
+      configurable: true,
+      value: vi.fn(() => "blob:mock"),
+    });
+    Object.defineProperty(URL, "revokeObjectURL", {
+      writable: true,
+      configurable: true,
+      value: vi.fn(),
+    });
+
+    const realCreateElement = document.createElement.bind(document);
+    vi.spyOn(document, "createElement").mockImplementation(((tagName: string, options?: ElementCreationOptions) => {
+      const element = realCreateElement(tagName, options);
+      if (tagName.toLowerCase() === "a") {
+        Object.defineProperty(element, "click", {
+          configurable: true,
+          writable: true,
+          value: vi.fn(),
+        });
+      }
+      return element;
+    }) as typeof document.createElement);
   });
 
   afterEach(() => {
     vi.useRealTimers();
+    vi.restoreAllMocks();
   });
 
   // ===================== POSITIVE =====================
@@ -46,13 +102,19 @@ describe("SongListPage", () => {
       mockList.mockResolvedValue({ songs: [], total: 0 });
       renderPage();
       expect(screen.getByPlaceholderText(/search songs/i)).toBeInTheDocument();
+      expect(screen.getByLabelText(/filter by group/i)).toBeInTheDocument();
+      expect(screen.getByLabelText(/filter by category/i)).toBeInTheDocument();
       expect(screen.getByText("All keys")).toBeInTheDocument();
+      expect(screen.getByLabelText(/filter by tag/i)).toBeInTheDocument();
+      expect(screen.getByLabelText(/minimum bpm/i)).toBeInTheDocument();
+      expect(screen.getByLabelText(/maximum bpm/i)).toBeInTheDocument();
+      expect(screen.getByLabelText(/sort songs/i)).toBeInTheDocument();
     });
 
     it("renders songs list when available", async () => {
       mockList.mockResolvedValue({
         songs: [
-          { id: "1", title: "Amazing Grace", key: "G", tempo: 72, artist: "Newton", tags: "hymn" },
+          { id: "1", title: "Amazing Grace", aka: "Grace Song, Old Hymn", category: "Church", key: "G", tempo: 72, artist: "Newton", tags: "hymn" },
           { id: "2", title: "How Great", key: "C", tempo: 120, artist: "Tomlin", tags: "" },
         ],
         total: 2,
@@ -61,6 +123,71 @@ describe("SongListPage", () => {
       await waitFor(() => {
         expect(screen.getByText("Amazing Grace")).toBeInTheDocument();
         expect(screen.getByText("How Great")).toBeInTheDocument();
+        expect(screen.getByText(/Category: Church/)).toBeInTheDocument();
+        expect(screen.getByText(/AKA: Grace Song, Old Hymn/)).toBeInTheDocument();
+      });
+    });
+
+    it("renders available song categories in the category filter dropdown", async () => {
+      mockList.mockResolvedValue({ songs: [], total: 0 });
+      renderPage();
+
+      const categorySelect = await screen.findByLabelText(/filter by category/i);
+      expect(categorySelect.querySelectorAll("option").length).toBe(3);
+      expect(screen.getByRole("option", { name: "Church" })).toBeInTheDocument();
+      expect(screen.getByRole("option", { name: "Wedding" })).toBeInTheDocument();
+    });
+
+    it("renders available song groups in the group filter dropdown", async () => {
+      mockList.mockResolvedValue({ songs: [], total: 0 });
+      renderPage();
+
+      const groupSelect = await screen.findByLabelText(/filter by group/i);
+      expect(groupSelect.querySelectorAll("option").length).toBe(2);
+      expect(screen.getByRole("option", { name: "Wedding Songs" })).toBeInTheDocument();
+    });
+
+    it("requests songs with the selected category filter", async () => {
+      mockList.mockResolvedValue({ songs: [], total: 0 });
+      renderPage();
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+
+      await screen.findByLabelText(/filter by category/i);
+      await user.selectOptions(screen.getByLabelText(/filter by category/i), "Church");
+
+      await waitFor(() => {
+        expect(mockList).toHaveBeenLastCalledWith({
+          q: undefined,
+          groupId: undefined,
+          category: "Church",
+          key: undefined,
+          tag: undefined,
+          sort: "lastEdited",
+          limit: 50,
+          offset: 0,
+        });
+      });
+    });
+
+    it("requests songs with the selected group filter", async () => {
+      mockList.mockResolvedValue({ songs: [], total: 0 });
+      renderPage();
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+
+      await screen.findByLabelText(/filter by group/i);
+      await user.selectOptions(screen.getByLabelText(/filter by group/i), "group-1");
+
+      await waitFor(() => {
+        expect(mockList).toHaveBeenLastCalledWith({
+          q: undefined,
+          groupId: "group-1",
+          category: undefined,
+          key: undefined,
+          tag: undefined,
+          sort: "lastEdited",
+          limit: 50,
+          offset: 0,
+        });
       });
     });
 
@@ -97,6 +224,246 @@ describe("SongListPage", () => {
       // Check some key options exist
       expect(select.querySelectorAll("option").length).toBeGreaterThan(1);
     });
+
+    it("renders available song tags in the tag filter dropdown", async () => {
+      mockList.mockResolvedValue({ songs: [], total: 0 });
+      renderPage();
+
+      const tagSelect = await screen.findByLabelText(/filter by tag/i);
+      expect(tagSelect.querySelectorAll("option").length).toBe(4);
+      expect(screen.getByRole("option", { name: "hymn" })).toBeInTheDocument();
+      expect(screen.getByRole("option", { name: "worship" })).toBeInTheDocument();
+    });
+
+    it("requests songs with the selected tag filter", async () => {
+      mockList.mockResolvedValue({ songs: [], total: 0 });
+      renderPage();
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+
+      await screen.findByLabelText(/filter by tag/i);
+      await user.selectOptions(screen.getByLabelText(/filter by tag/i), "worship");
+
+      await waitFor(() => {
+        expect(mockList).toHaveBeenLastCalledWith({
+          q: undefined,
+          groupId: undefined,
+          category: undefined,
+          key: undefined,
+          tag: "worship",
+          sort: "lastEdited",
+          limit: 50,
+          offset: 0,
+        });
+      });
+    });
+
+    it("requests songs with the selected tempo range", async () => {
+      mockList.mockResolvedValue({ songs: [], total: 0 });
+      renderPage();
+
+      fireEvent.change(screen.getByLabelText(/minimum bpm/i), { target: { value: "70" } });
+      fireEvent.change(screen.getByLabelText(/maximum bpm/i), { target: { value: "90" } });
+
+      await waitFor(() => {
+        expect(mockList).toHaveBeenLastCalledWith({
+          q: undefined,
+          groupId: undefined,
+          category: undefined,
+          key: undefined,
+          tag: undefined,
+          tempoMin: 70,
+          tempoMax: 90,
+          sort: "lastEdited",
+          limit: 50,
+          offset: 0,
+        });
+      });
+    });
+
+    it("requests songs with the selected sort option", async () => {
+      mockList.mockResolvedValue({ songs: [], total: 0 });
+      renderPage();
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+
+      await user.selectOptions(screen.getByLabelText(/sort songs/i), "mostUsed");
+
+      await waitFor(() => {
+        expect(mockList).toHaveBeenLastCalledWith({
+          q: undefined,
+          groupId: undefined,
+          category: undefined,
+          key: undefined,
+          tag: undefined,
+          sort: "mostUsed",
+          limit: 50,
+          offset: 0,
+        });
+      });
+    });
+
+    it("carries the selected key into song links", async () => {
+      mockList.mockResolvedValue({
+        songs: [{ id: "1", title: "Amazing Grace", key: "G", content: "" }],
+        total: 1,
+      });
+      renderPage();
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+
+      await user.selectOptions(screen.getByDisplayValue("All keys"), "C");
+
+      await waitFor(() => {
+        expect(screen.getByRole("link", { name: /amazing grace/i })).toHaveAttribute("href", "/songs/1?key=C");
+      });
+    });
+
+    it("shows pagination controls and requests the next page", async () => {
+      mockList
+        .mockResolvedValueOnce({
+          songs: Array.from({ length: 50 }, (_, index) => ({ id: String(index + 1), title: `Song ${index + 1}` })),
+          total: 75,
+        })
+        .mockResolvedValueOnce({
+          songs: Array.from({ length: 25 }, (_, index) => ({ id: String(index + 51), title: `Song ${index + 51}` })),
+          total: 75,
+        });
+
+      renderPage();
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+
+      await waitFor(() => {
+        expect(screen.getByText(/page 1 of 2/i)).toBeInTheDocument();
+        expect(screen.getByText(/showing 1-50/i)).toBeInTheDocument();
+      });
+
+      await user.click(screen.getByRole("button", { name: /next/i }));
+
+      await waitFor(() => {
+        expect(mockList).toHaveBeenLastCalledWith({
+          q: undefined,
+          groupId: undefined,
+          category: undefined,
+          key: undefined,
+          tag: undefined,
+          sort: "lastEdited",
+          limit: 50,
+          offset: 50,
+        });
+        expect(screen.getByText(/page 2 of 2/i)).toBeInTheDocument();
+        expect(screen.getByText(/showing 51-75/i)).toBeInTheDocument();
+      });
+    });
+
+    it("resets to the first page when filters change", async () => {
+      mockList
+        .mockResolvedValueOnce({
+          songs: Array.from({ length: 50 }, (_, index) => ({ id: String(index + 1), title: `Song ${index + 1}` })),
+          total: 75,
+        })
+        .mockResolvedValueOnce({
+          songs: Array.from({ length: 25 }, (_, index) => ({ id: String(index + 51), title: `Song ${index + 51}` })),
+          total: 75,
+        })
+        .mockResolvedValue({ songs: [], total: 0 });
+
+      renderPage();
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+
+      await waitFor(() => {
+        expect(screen.getByText(/page 1 of 2/i)).toBeInTheDocument();
+      });
+
+      await user.click(screen.getByRole("button", { name: /next/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/page 2 of 2/i)).toBeInTheDocument();
+      });
+
+      await user.type(screen.getByPlaceholderText(/search songs/i), "reset");
+      vi.advanceTimersByTime(350);
+
+      await waitFor(() => {
+        expect(mockList).toHaveBeenLastCalledWith({
+          q: "reset",
+          groupId: undefined,
+          category: undefined,
+          key: undefined,
+          tag: undefined,
+          sort: "lastEdited",
+          limit: 50,
+          offset: 0,
+        });
+      });
+    });
+
+    it("exports selected songs as a chordpro zip", async () => {
+      mockList.mockResolvedValue({
+        songs: [
+          { id: "1", title: "Amazing Grace", key: "G", tempo: 72, artist: "Newton", tags: "hymn" },
+          { id: "2", title: "How Great", key: "C", tempo: 120, artist: "Tomlin", tags: "worship" },
+        ],
+        total: 2,
+      });
+      renderPage();
+
+      await waitFor(() => {
+        expect(screen.getByText("Amazing Grace")).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByRole("checkbox", { name: /select amazing grace/i }));
+      fireEvent.click(screen.getByRole("checkbox", { name: /select how great/i }));
+      fireEvent.click(screen.getByRole("button", { name: /export zip/i }));
+      fireEvent.click(screen.getByText("ChordPro ZIP (.zip)"));
+
+      await waitFor(() => {
+        expect(mockExportZip).toHaveBeenCalledWith(["1", "2"], "chordpro");
+      });
+    });
+
+    it("selects all visible songs from the select-all control", async () => {
+      mockList.mockResolvedValue({
+        songs: [
+          { id: "1", title: "Amazing Grace", key: "G", content: "" },
+          { id: "2", title: "How Great", key: "C", content: "" },
+        ],
+        total: 2,
+      });
+      renderPage();
+
+      await waitFor(() => {
+        expect(screen.getByRole("checkbox", { name: /select all visible songs/i })).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByRole("checkbox", { name: /select all visible songs/i }));
+
+      expect(screen.getByRole("checkbox", { name: /select amazing grace/i })).toBeChecked();
+      expect(screen.getByRole("checkbox", { name: /select how great/i })).toBeChecked();
+    });
+
+    it("creates a group and adds selected songs from the groups modal", async () => {
+      mockList.mockResolvedValue({
+        songs: [{ id: "1", title: "Amazing Grace", key: "G", content: "" }],
+        total: 1,
+      });
+      mockGetGroups
+        .mockResolvedValueOnce({ groups: [] })
+        .mockResolvedValueOnce({ groups: [{ id: "group-2", name: "Choir Rehearsal", songCount: 1 }] });
+      renderPage();
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+
+      await waitFor(() => {
+        expect(screen.getByText("Amazing Grace")).toBeInTheDocument();
+      });
+
+      await user.click(screen.getByRole("checkbox", { name: /select amazing grace/i }));
+      await user.click(screen.getByRole("button", { name: /groups/i }));
+      await user.type(screen.getByPlaceholderText(/wedding set, youth night, choir rehearsal/i), "Choir Rehearsal");
+      await user.click(screen.getByRole("button", { name: /create group/i }));
+
+      await waitFor(() => {
+        expect(mockCreateGroup).toHaveBeenCalledWith({ name: "Choir Rehearsal" });
+        expect(mockAddSongsToGroup).toHaveBeenCalledWith("group-2", ["1"]);
+      });
+    });
   });
 
   // ===================== NEGATIVE =====================
@@ -131,10 +498,47 @@ describe("SongListPage", () => {
       });
     });
 
+    it("shows no-match message when a tag filter yields nothing", async () => {
+      mockList
+        .mockResolvedValueOnce({ songs: [{ id: "1", title: "X" }], total: 1 })
+        .mockResolvedValueOnce({ songs: [], total: 0 });
+
+      renderPage();
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+
+      await waitFor(() => {
+        expect(screen.getByText("X")).toBeInTheDocument();
+      });
+
+      await user.selectOptions(screen.getByLabelText(/filter by tag/i), "worship");
+
+      await waitFor(() => {
+        expect(screen.getByText(/no songs match your search/i)).toBeInTheDocument();
+      });
+    });
+
+    it("shows no-match message when a tempo range yields nothing", async () => {
+      mockList
+        .mockResolvedValueOnce({ songs: [{ id: "1", title: "X" }], total: 1 })
+        .mockResolvedValueOnce({ songs: [], total: 0 });
+
+      renderPage();
+
+      await waitFor(() => {
+        expect(screen.getByText("X")).toBeInTheDocument();
+      });
+
+      fireEvent.change(screen.getByLabelText(/minimum bpm/i), { target: { value: "200" } });
+
+      await waitFor(() => {
+        expect(screen.getByText(/no songs match your search/i)).toBeInTheDocument();
+      });
+    });
+
     it("shows loading state initially", () => {
       mockList.mockReturnValue(new Promise(() => {}));
       renderPage();
-      expect(screen.getByText("Loading...")).toBeInTheDocument();
+      expect(document.querySelector(".spinner")).toBeInTheDocument();
     });
 
     it("handles API errors gracefully", async () => {

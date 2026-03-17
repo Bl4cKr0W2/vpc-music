@@ -7,6 +7,11 @@ import { SongViewPage } from "@/pages/songs/SongViewPage";
 const mockGetSong = vi.fn();
 const mockListHistory = vi.fn();
 
+let mockAuthValue: any = {
+  user: { id: "u1", email: "admin@test.com", displayName: "Admin", role: "owner" },
+  activeOrg: { id: "org1", name: "Test Church", role: "admin" },
+};
+
 vi.mock("@/lib/api-client", () => ({
   songsApi: {
     get: (...args: any[]) => mockGetSong(...args),
@@ -31,6 +36,7 @@ vi.mock("@/lib/api-client", () => ({
   variationsApi: {
     create: vi.fn(),
     update: vi.fn(),
+    setDefault: vi.fn(),
     delete: vi.fn(),
   },
   stickyNotesApi: {
@@ -48,6 +54,10 @@ vi.mock("react-router-dom", async () => {
 
 vi.mock("sonner", () => ({
   toast: { success: vi.fn(), error: vi.fn() },
+}));
+
+vi.mock("@/contexts/AuthContext", () => ({
+  useAuth: () => mockAuthValue,
 }));
 
 vi.mock("@vpc-music/shared", () => ({

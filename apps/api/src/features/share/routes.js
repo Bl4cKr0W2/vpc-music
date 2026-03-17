@@ -5,6 +5,7 @@ import { db } from "../../db.js";
 import { shareTokens, songs } from "../../schema/index.js";
 import { createError, asyncHandler } from "../../middlewares/errorHandler.js";
 import { auth } from "../../middlewares/auth.js";
+import { orgContext, requireOrg, requireOrgRole } from "../../middlewares/orgContext.js";
 
 export const shareRoutes = Router();
 
@@ -19,6 +20,9 @@ function generateToken() {
 shareRoutes.post(
   "/songs/:id/share",
   auth,
+  orgContext,
+  requireOrg,
+  requireOrgRole("admin", "musician"),
   asyncHandler(async (req, res) => {
     const songId = req.params.id;
 
@@ -77,6 +81,9 @@ shareRoutes.get(
 shareRoutes.delete(
   "/songs/:id/shares/:tokenId",
   auth,
+  orgContext,
+  requireOrg,
+  requireOrgRole("admin", "musician"),
   asyncHandler(async (req, res) => {
     const { id: songId, tokenId } = req.params;
 
@@ -103,6 +110,9 @@ shareRoutes.delete(
 shareRoutes.patch(
   "/songs/:id/shares/:tokenId",
   auth,
+  orgContext,
+  requireOrg,
+  requireOrgRole("admin", "musician"),
   asyncHandler(async (req, res) => {
     const { id: songId, tokenId } = req.params;
     const { label } = req.body;
@@ -151,9 +161,12 @@ shareRoutes.get(
       .select({
         id: songs.id,
         title: songs.title,
+        aka: songs.aka,
+        category: songs.category,
         key: songs.key,
         tempo: songs.tempo,
         artist: songs.artist,
+        shout: songs.shout,
         content: songs.content,
         tags: songs.tags,
       })

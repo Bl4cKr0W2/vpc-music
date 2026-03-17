@@ -9,12 +9,14 @@ const mockDeleteSetlist = vi.fn();
 const mockAddSong = vi.fn();
 const mockRemoveSong = vi.fn();
 const mockReorderSongs = vi.fn();
+const mockExportZip = vi.fn();
 const mockSongsList = vi.fn();
 const mockNavigate = vi.fn();
 
 vi.mock("@/lib/api-client", () => ({
   setlistsApi: {
     get: (...args: any[]) => mockGetSetlist(...args),
+    exportZip: (...args: any[]) => mockExportZip(...args),
     delete: (...args: any[]) => mockDeleteSetlist(...args),
     addSong: (...args: any[]) => mockAddSong(...args),
     removeSong: (...args: any[]) => mockRemoveSong(...args),
@@ -39,6 +41,14 @@ vi.mock("sonner", () => ({
 
 vi.mock("@vpc-music/shared", () => ({
   ALL_KEYS: ["C", "D", "E", "F", "G", "A", "B"],
+}));
+
+let mockAuthValue: any = {
+  user: { id: "u1", email: "test@test.com", displayName: "Test", role: "owner" },
+  activeOrg: { id: "org1", name: "Test Church", role: "admin" },
+};
+vi.mock("@/contexts/AuthContext", () => ({
+  useAuth: () => mockAuthValue,
 }));
 
 const mockGoToSong = vi.fn();
@@ -72,14 +82,25 @@ function renderPage(id = "sl-1") {
 
 const mockSetlist = { id: "sl-1", name: "Sunday Service", category: "worship", notes: "Notes here" };
 const mockSongs = [
-  { id: "item-1", songId: "s1", position: 0, songTitle: "Song A", songKey: "G", songArtist: "Artist 1", songTempo: 120, key: null, notes: null },
-  { id: "item-2", songId: "s2", position: 1, songTitle: "Song B", songKey: "C", songArtist: null, songTempo: null, key: "D", notes: null },
+  { id: "item-1", songId: "s1", variationId: "v1", variationName: "Acoustic", position: 0, songTitle: "Song A", songKey: "G", songArtist: "Artist 1", songTempo: 120, key: null, notes: null },
+  { id: "item-2", songId: "s2", variationId: null, variationName: null, position: 1, songTitle: "Song B", songKey: "C", songArtist: null, songTempo: null, key: "D", notes: null },
 ];
 
 describe("SetlistViewPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.spyOn(window, "confirm").mockReturnValue(true);
+    mockExportZip.mockResolvedValue({ ok: true, blob: () => Promise.resolve(new Blob(["zip"])) });
+    Object.defineProperty(URL, "createObjectURL", {
+      writable: true,
+      configurable: true,
+      value: vi.fn(() => "blob:mock"),
+    });
+    Object.defineProperty(URL, "revokeObjectURL", {
+      writable: true,
+      configurable: true,
+      value: vi.fn(),
+    });
   });
 
   // ===================== POSITIVE =====================
@@ -111,6 +132,15 @@ describe("SetlistViewPage", () => {
       });
     });
 
+    it("shows variation info and preserves the variation link", async () => {
+      mockGetSetlist.mockResolvedValue({ setlist: mockSetlist, songs: mockSongs });
+      renderPage();
+      await waitFor(() => {
+        expect(screen.getByText(/Variation: Acoustic/i)).toBeInTheDocument();
+        expect(screen.getByText("Song A").closest("a")).toHaveAttribute("href", "/songs/s1?variation=v1");
+      });
+    });
+
     it("renders position numbers", async () => {
       mockGetSetlist.mockResolvedValue({ setlist: mockSetlist, songs: mockSongs });
       renderPage();
@@ -133,6 +163,31 @@ describe("SetlistViewPage", () => {
       renderPage();
       await waitFor(() => {
         expect(screen.getByRole("button", { name: /add song/i })).toBeInTheDocument();
+      });
+    });
+
+    it("renders Export ZIP button when the setlist has songs", async () => {
+      mockGetSetlist.mockResolvedValue({ setlist: mockSetlist, songs: mockSongs });
+      renderPage();
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /export zip/i })).toBeInTheDocument();
+      });
+    });
+
+    it("exports the setlist as a chordpro zip", async () => {
+      mockGetSetlist.mockResolvedValue({ setlist: mockSetlist, songs: mockSongs });
+      renderPage();
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /export zip/i })).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: /export zip/i }));
+      fireEvent.click(screen.getByText("ChordPro ZIP (.zip)"));
+
+      await waitFor(() => {
+        expect(mockExportZip).toHaveBeenCalledWith("sl-1", "chordpro");
       });
     });
 
@@ -171,7 +226,7 @@ describe("SetlistViewPage", () => {
     it("shows loading spinner", () => {
       mockGetSetlist.mockReturnValue(new Promise(() => {}));
       renderPage();
-      expect(document.querySelector(".animate-spin")).toBeInTheDocument();
+      expect(document.querySelector(".spinner")).toBeInTheDocument();
     });
 
     it("shows not found when setlist doesn't exist", async () => {
@@ -195,6 +250,15 @@ describe("SetlistViewPage", () => {
       renderPage();
       await waitFor(() => {
         expect(screen.getByText(/no songs in this setlist/i)).toBeInTheDocument();
+      });
+    });
+
+    it("does not show Export ZIP when the setlist is empty", async () => {
+      mockGetSetlist.mockResolvedValue({ setlist: mockSetlist, songs: [] });
+      renderPage();
+
+      await waitFor(() => {
+        expect(screen.queryByRole("button", { name: /export zip/i })).not.toBeInTheDocument();
       });
     });
 

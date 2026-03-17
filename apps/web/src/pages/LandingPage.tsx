@@ -104,7 +104,7 @@ export function LandingPage() {
   return (
     <div className="min-h-screen bg-[hsl(var(--background))] text-[hsl(var(--foreground))]">
       {/* ─── Top Bar ─────────────────────────────────────────── */}
-      <nav className="flex items-center justify-between px-6 py-4 max-w-6xl mx-auto">
+      <nav className="sticky top-0 z-40 glass border-b border-[hsl(var(--border))] flex items-center justify-between px-6 py-4 max-w-6xl mx-auto">
         <div className="flex items-center gap-2">
           <ThemedLogo className="h-8 w-8 rounded-md" />
           <span className="text-lg font-brand text-[hsl(var(--secondary))]">VPC Music</span>
@@ -113,7 +113,7 @@ export function LandingPage() {
           <ThemeToggleButton position="inline" />
           <Link
             to="/login"
-            className="rounded-md border border-[hsl(var(--border))] px-4 py-1.5 text-sm font-medium text-[hsl(var(--foreground))] hover:bg-[hsl(var(--muted))] transition-colors"
+            className="btn-outline btn-sm"
           >
             Sign in
           </Link>
@@ -121,15 +121,22 @@ export function LandingPage() {
       </nav>
 
       {/* ─── Hero ────────────────────────────────────────────── */}
-      <header className="flex flex-col items-center gap-6 px-6 pt-16 pb-20 text-center max-w-3xl mx-auto">
+      <header className="relative flex flex-col items-center gap-6 px-6 pt-20 pb-24 text-center max-w-3xl mx-auto overflow-hidden">
+        <div className="absolute inset-0 -z-10 bg-gradient-to-b from-[hsl(var(--secondary))]/5 to-transparent" />
         <h1 className="text-4xl md:text-5xl lg:text-6xl font-brand text-[hsl(var(--secondary))] leading-tight">
           Welcome to VPC Music
         </h1>
-        <p className="max-w-xl text-lg text-[hsl(var(--muted-foreground))]">
+        <p className="max-w-xl text-lg text-[hsl(var(--muted-foreground))] leading-relaxed">
           Our team's hub for managing chord charts, building setlists, and staying
           in sync during worship and rehearsal. Everything lives here, accessible
           from any device, any time.
         </p>
+        <Link
+          to="/login"
+          className="btn-primary mt-2 px-8 py-3 text-base"
+        >
+          Get Started
+        </Link>
       </header>
 
       {/* ─── Core Features ───────────────────────────────────── */}
@@ -145,30 +152,32 @@ export function LandingPage() {
           {coreFeatures.map((f) => (
             <div
               key={f.title}
-              className="rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-6 space-y-3"
+              className="card card-body-lg space-y-3 group hover:border-[hsl(var(--secondary))] transition-all"
             >
-              <f.icon className="h-8 w-8 text-[hsl(var(--secondary))]" />
+              <div className="inline-flex items-center justify-center h-10 w-10 rounded-lg bg-[hsl(var(--secondary))]/10 text-[hsl(var(--secondary))] group-hover:bg-[hsl(var(--secondary))]/20 transition-colors">
+                <f.icon className="h-5 w-5" />
+              </div>
               <h3 className="text-lg font-brand text-[hsl(var(--foreground))]">{f.title}</h3>
-              <p className="text-sm text-[hsl(var(--muted-foreground))]">{f.desc}</p>
+              <p className="text-sm text-[hsl(var(--muted-foreground))] leading-relaxed">{f.desc}</p>
             </div>
           ))}
         </div>
       </section>
 
       {/* ─── How It Works ────────────────────────────────────── */}
-      <section className="bg-[hsl(var(--muted))] py-16">
+      <section className="bg-[hsl(var(--muted))] py-20">
         <div className="mx-auto max-w-4xl px-6">
-          <h2 className="text-2xl md:text-3xl font-brand text-center text-[hsl(var(--foreground))] mb-10">
+          <h2 className="text-2xl md:text-3xl font-brand text-center text-[hsl(var(--foreground))] mb-12">
             How it works
           </h2>
           <div className="grid gap-8 sm:grid-cols-3">
             {steps.map((s) => (
               <div key={s.num} className="text-center space-y-3">
-                <div className="inline-flex items-center justify-center h-12 w-12 rounded-full bg-[hsl(var(--secondary))] text-[hsl(var(--secondary-foreground))] text-lg font-bold">
+                <div className="inline-flex items-center justify-center h-14 w-14 rounded-full bg-[hsl(var(--secondary))] text-[hsl(var(--secondary-foreground))] text-xl font-bold shadow-lg">
                   {s.num}
                 </div>
                 <h3 className="text-lg font-brand text-[hsl(var(--foreground))]">{s.title}</h3>
-                <p className="text-sm text-[hsl(var(--muted-foreground))]">{s.desc}</p>
+                <p className="text-sm text-[hsl(var(--muted-foreground))] leading-relaxed">{s.desc}</p>
               </div>
             ))}
           </div>
@@ -177,38 +186,42 @@ export function LandingPage() {
 
       {/* ─── More Features ───────────────────────────────────── */}
       <section className="mx-auto max-w-6xl px-6 py-20">
-        <h2 className="text-2xl md:text-3xl font-brand text-center text-[hsl(var(--foreground))] mb-10">
+        <h2 className="text-2xl md:text-3xl font-brand text-center text-[hsl(var(--foreground))] mb-12">
           Also built in
         </h2>
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {additionalFeatures.map((f) => (
             <div
               key={f.title}
-              className="rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-6 space-y-3"
+              className="card card-body-lg space-y-3 group hover:border-[hsl(var(--secondary))] transition-all"
             >
-              <f.icon className="h-8 w-8 text-[hsl(var(--secondary))]" />
+              <div className="inline-flex items-center justify-center h-10 w-10 rounded-lg bg-[hsl(var(--secondary))]/10 text-[hsl(var(--secondary))] group-hover:bg-[hsl(var(--secondary))]/20 transition-colors">
+                <f.icon className="h-5 w-5" />
+              </div>
               <h3 className="text-lg font-brand text-[hsl(var(--foreground))]">{f.title}</h3>
-              <p className="text-sm text-[hsl(var(--muted-foreground))]">{f.desc}</p>
+              <p className="text-sm text-[hsl(var(--muted-foreground))] leading-relaxed">{f.desc}</p>
             </div>
           ))}
         </div>
       </section>
 
       {/* ─── CTA Banner ──────────────────────────────────────── */}
-      <section className="bg-[hsl(var(--muted))] py-16">
+      <section className="bg-gradient-to-r from-[hsl(var(--secondary))]/10 via-[hsl(var(--secondary))]/5 to-[hsl(var(--secondary))]/10 py-20">
         <div className="mx-auto max-w-2xl px-6 text-center space-y-4">
           <h2 className="text-2xl md:text-3xl font-brand text-[hsl(var(--foreground))]">
             Want to join the team?
           </h2>
-          <p className="text-[hsl(var(--muted-foreground))]">
+          <p className="text-[hsl(var(--muted-foreground))] leading-relaxed">
             Access is by invitation only. Reach out to the worship team lead to get added.
           </p>
         </div>
       </section>
 
       {/* ─── Footer ──────────────────────────────────────────── */}
-      <footer className="border-t border-[hsl(var(--border))] py-6 text-center text-xs text-[hsl(var(--muted-foreground))]">
-        © {new Date().getFullYear()} VPC Music
+      <footer className="border-t border-[hsl(var(--border))] py-8 text-center">
+        <p className="text-xs text-[hsl(var(--muted-foreground))]">
+          © {new Date().getFullYear()} VPC Music
+        </p>
       </footer>
     </div>
   );

@@ -12,10 +12,12 @@ vi.mock("@/contexts/AuthContext", () => ({
 const mockSongsList = vi.fn();
 const mockSetlistsList = vi.fn();
 const mockEventsList = vi.fn();
+const mockMostUsed = vi.fn();
 vi.mock("@/lib/api-client", () => ({
   songsApi: { list: (...args: any[]) => mockSongsList(...args) },
   setlistsApi: { list: (...args: any[]) => mockSetlistsList(...args) },
   eventsApi: { list: (...args: any[]) => mockEventsList(...args) },
+  songUsageApi: { mostUsed: (...args: any[]) => mockMostUsed(...args) },
 }));
 
 function renderDashboard() {
@@ -29,8 +31,12 @@ function renderDashboard() {
 describe("DashboardPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockUseAuth.mockReturnValue({ user: { displayName: "John", email: "john@test.com" } });
+    mockUseAuth.mockReturnValue({
+      user: { displayName: "John", email: "john@test.com", role: "owner" },
+      activeOrg: { id: "org1", name: "Test Church", role: "admin" },
+    });
     mockEventsList.mockResolvedValue({ events: [] });
+    mockMostUsed.mockResolvedValue({ songs: [] });
   });
 
   // ===================== POSITIVE =====================
@@ -104,7 +110,7 @@ describe("DashboardPage", () => {
       mockSetlistsList.mockResolvedValue({ setlists: [] });
       renderDashboard();
       await waitFor(() => {
-        expect(screen.getByText("Key: D")).toBeInTheDocument();
+        expect(screen.getByText("D")).toBeInTheDocument();
         expect(screen.getByText("90 BPM")).toBeInTheDocument();
         expect(screen.getByText("Artist X")).toBeInTheDocument();
       });

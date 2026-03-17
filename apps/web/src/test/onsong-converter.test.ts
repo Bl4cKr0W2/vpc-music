@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import * as fs from "fs";
 import * as path from "path";
-import { chordProToOnSong } from "@vpc-music/shared";
+import { chordProToOnSong, onSongToChordPro } from "@vpc-music/shared";
 
 describe("OnSong Converter", () => {
   // ===================== BASIC CONVERSION =====================
@@ -110,6 +110,57 @@ describe("OnSong Converter", () => {
     });
   });
 
+  // ===================== IMPORT TO CHORDPRO =====================
+  describe("OnSong/OpenSong import", () => {
+    it("converts OnSong metadata back to ChordPro directives", () => {
+      const input = "Title: Amazing Grace\nArtist: John Newton\nKey: G\nTempo: 72\n\nVerse 1:\n[G]Amazing [C]grace";
+      const result = onSongToChordPro(input);
+
+      expect(result).toContain("{title: Amazing Grace}");
+      expect(result).toContain("{artist: John Newton}");
+      expect(result).toContain("{key: G}");
+      expect(result).toContain("{tempo: 72}");
+      expect(result).toContain("{comment: Verse 1}");
+      expect(result).toContain("[G]Amazing [C]grace");
+    });
+
+    it("preserves plain lyric lines during OnSong import", () => {
+      const input = "Title: Test\n\nVerse 1:\nJust a plain line";
+      const result = onSongToChordPro(input);
+      expect(result).toContain("Just a plain line");
+    });
+
+    it("converts OpenSong XML metadata and lyrics to ChordPro", () => {
+      const input = `
+<song>
+  <title>How Great Thou Art</title>
+  <author>Carl Boberg</author>
+  <key>G</key>
+  <tempo>88</tempo>
+  <lyrics>[V1]
+[G]O Lord my God
+[C]When I in awesome wonder
+[C]
+[C]
+[C]Consider all
+[C]the worlds Thy Hands have made</lyrics>
+</song>`.trim();
+
+      const result = onSongToChordPro(input);
+
+      expect(result).toContain("{title: How Great Thou Art}");
+      expect(result).toContain("{artist: Carl Boberg}");
+      expect(result).toContain("{key: G}");
+      expect(result).toContain("{tempo: 88}");
+      expect(result).toContain("{comment: Verse 1}");
+      expect(result).toContain("[G]O Lord my God");
+    });
+
+    it("returns empty string for empty input", () => {
+      expect(onSongToChordPro("")).toBe("");
+    });
+  });
+
   // ===================== SOURCE-LEVEL =====================
   describe("source-level", () => {
     const src = fs.readFileSync(
@@ -119,6 +170,10 @@ describe("OnSong Converter", () => {
 
     it("exports chordProToOnSong function", () => {
       expect(src).toContain("export function chordProToOnSong");
+    });
+
+    it("exports onSongToChordPro function", () => {
+      expect(src).toContain("export function onSongToChordPro");
     });
 
     it("exports docToOnSong function", () => {

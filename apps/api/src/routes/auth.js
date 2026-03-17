@@ -219,15 +219,41 @@ authRoutes.get(
     }
 
     // Include org memberships
-    const orgs = await db
-      .select({
-        id: organizations.id,
-        name: organizations.name,
-        role: organizationMembers.role,
-      })
-      .from(organizationMembers)
-      .innerJoin(organizations, eq(organizationMembers.organizationId, organizations.id))
-      .where(eq(organizationMembers.userId, user.id));
+    // Global owners see ALL orgs; regular users see only their memberships
+    let orgs;
+    if (user.role === "owner") {
+      orgs = await db
+        .select({
+          id: organizations.id,
+          name: organizations.name,
+          role: organizationMembers.role,
+        })
+        .from(organizations)
+        .leftJoin(
+          organizationMembers,
+          and(
+            eq(organizationMembers.organizationId, organizations.id),
+            eq(organizationMembers.userId, user.id),
+          ),
+        )
+        .orderBy(organizations.name);
+
+      // Fill in role for orgs the owner isn't a member of
+      orgs = orgs.map((o) => ({
+        ...o,
+        role: o.role || "admin", // treat owner as admin in orgs they don't formally belong to
+      }));
+    } else {
+      orgs = await db
+        .select({
+          id: organizations.id,
+          name: organizations.name,
+          role: organizationMembers.role,
+        })
+        .from(organizationMembers)
+        .innerJoin(organizations, eq(organizationMembers.organizationId, organizations.id))
+        .where(eq(organizationMembers.userId, user.id));
+    }
 
     res.json({ user: { ...user, organizations: orgs } });
   })

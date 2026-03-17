@@ -2,6 +2,7 @@
 import { pgTable, text, timestamp, integer, uuid } from "drizzle-orm/pg-core";
 import { pgEnum } from "drizzle-orm/pg-core";
 import { songs } from "./songs.js";
+import { songVariations } from "./songs.js";
 import { organizations } from "./organizations.js";
 
 export const setlistStatusEnum = pgEnum("setlist_status", ["draft", "complete"]);
@@ -22,6 +23,7 @@ export const setlistSongs = pgTable("setlist_songs", {
   id: uuid("id").defaultRandom().primaryKey(),
   setlistId: uuid("setlist_id").notNull().references(() => setlists.id),
   songId: uuid("song_id").notNull().references(() => songs.id),
+  variationId: uuid("variation_id").references(() => songVariations.id),
   position: integer("position").notNull(),
   key: text("key"),                     // override key for this setlist
   notes: text("notes"),                 // per-song notes within the setlist

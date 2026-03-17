@@ -37,8 +37,25 @@ declare module "@vpc-music/shared" {
     sections: ChordProSection[];
   }
 
+  export interface LegacyChrdMetadata {
+    title: string;
+    artist: string | null;
+    key: string | null;
+    tempo: number | null;
+    year: string | null;
+    isDraft: boolean;
+  }
+
+  export interface LegacyChrdConversionResult {
+    title: string;
+    chordProContent: string;
+    metadata: LegacyChrdMetadata;
+    warnings: string[];
+  }
+
   export function parseChordPro(input: string): ChordProDocument;
   export function toChordProString(doc: ChordProDocument): string;
+  export function convertChrdToChordPro(filename: string, input: string): LegacyChrdConversionResult;
 
   // ── Transpose ──────────────────────────────────
   export function transposeChord(chord: string, semitones: number): string;
@@ -50,4 +67,8 @@ declare module "@vpc-music/shared" {
 
   // ── OnSong Converter ──────────────────────────
   export function chordProToOnSong(input: string): string;
+  export function onSongToChordPro(input: string): string;
+
+  // ── Plain Text Export ─────────────────────────
+  export function chordProToPlainText(input: string, options?: { lyricsOnly?: boolean }): string;
 }

@@ -14,6 +14,7 @@ import { adminRoutes } from "./features/admin/routes.js";
 import { eventRoutes } from "./features/events/routes.js";
 import { shareRoutes } from "./features/share/routes.js";
 import { stickyNoteRoutes } from "./features/songs/stickyNoteRoutes.js";
+import { orgRoutes } from "./features/organizations/routes.js";
 
 const app = express();
 
@@ -40,6 +41,7 @@ app.use("/api/setlists", setlistRoutes);
 app.use("/api/platform", platformRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/events", eventRoutes);
+app.use("/api/organizations", orgRoutes);
 app.use("/api", shareRoutes);   // /api/songs/:id/share(s) + /api/shared/:token
 
 // ── Error handler (must be last) ─────────────────

@@ -6,12 +6,13 @@ import { SettingsPage } from "@/pages/settings/SettingsPage";
 
 // ---------- Mocks ----------
 const mockRefreshUser = vi.fn();
+let mockAuthValue: any = {
+  user: { id: "u1", displayName: "John", email: "john@test.com", role: "member", organizations: [{ id: "org1", name: "Test Church", role: "admin" }] },
+  activeOrg: { id: "org1", name: "Test Church", role: "admin" },
+  refreshUser: mockRefreshUser,
+};
 vi.mock("@/contexts/AuthContext", () => ({
-  useAuth: () => ({
-    user: { id: "u1", displayName: "John", email: "john@test.com", role: "member", organizations: [{ id: "org1", name: "Test Church", role: "admin" }] },
-    activeOrg: { id: "org1", name: "Test Church", role: "admin" },
-    refreshUser: mockRefreshUser,
-  }),
+  useAuth: () => mockAuthValue,
 }));
 
 const mockSetTheme = vi.fn();
@@ -26,8 +27,18 @@ const mockGetSettings = vi.fn();
 const mockUpdateSettings = vi.fn();
 const mockUpdateProfile = vi.fn();
 const mockChangePassword = vi.fn();
+const mockListUsers = vi.fn();
+const mockUpdateOrg = vi.fn();
+const mockRemoveOrg = vi.fn();
 
 vi.mock("@/lib/api-client", () => ({
+  adminApi: {
+    listUsers: (...args: any[]) => mockListUsers(...args),
+  },
+  orgsApi: {
+    update: (...args: any[]) => mockUpdateOrg(...args),
+    remove: (...args: any[]) => mockRemoveOrg(...args),
+  },
   platformApi: {
     getSettings: (...args: any[]) => mockGetSettings(...args),
     updateSettings: (...args: any[]) => mockUpdateSettings(...args),
@@ -51,8 +62,17 @@ function renderPage() {
 describe("SettingsPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockAuthValue = {
+      user: { id: "u1", displayName: "John", email: "john@test.com", role: "member", organizations: [{ id: "org1", name: "Test Church", role: "admin" }] },
+      activeOrg: { id: "org1", name: "Test Church", role: "admin" },
+      refreshUser: mockRefreshUser,
+    };
     mockGetSettings.mockResolvedValue({ settings: {} });
     mockUpdateSettings.mockResolvedValue({ settings: {} });
+    mockListUsers.mockResolvedValue({ users: [{ id: "u1" }, { id: "u2" }, { id: "u3" }] });
+    mockUpdateOrg.mockResolvedValue({ organization: { id: "org1", name: "Renamed Church" } });
+    mockRemoveOrg.mockResolvedValue({ message: "deleted" });
+    vi.spyOn(window, "confirm").mockReturnValue(true);
   });
 
   // ===================== POSITIVE =====================
@@ -86,8 +106,62 @@ describe("SettingsPage", () => {
     it("shows organization info and user ID", () => {
       renderPage();
       expect(screen.getByText(/Organization: Test Church/)).toBeInTheDocument();
-      expect(screen.getByText(/Worship Leader/)).toBeInTheDocument();
+      expect(screen.getAllByText(/Worship Leader/).length).toBeGreaterThan(0);
       expect(screen.getByText(/User ID: u1/)).toBeInTheDocument();
+    });
+
+    it("renders organization management fields for org admins", async () => {
+      renderPage();
+
+      expect(screen.getByRole("heading", { name: /organization/i })).toBeInTheDocument();
+      expect(screen.getByDisplayValue("Test Church")).toBeInTheDocument();
+
+      await waitFor(() => {
+        expect(screen.getByText("3")).toBeInTheDocument();
+      });
+    });
+
+    it("saves organization name on submit", async () => {
+      renderPage();
+      const user = userEvent.setup();
+
+      const orgInput = screen.getByLabelText(/organization name/i);
+      await user.clear(orgInput);
+      await user.type(orgInput, "Renamed Church");
+      await user.click(screen.getByRole("button", { name: /save organization/i }));
+
+      await waitFor(() => {
+        expect(mockUpdateOrg).toHaveBeenCalledWith("org1", "Renamed Church");
+        expect(mockRefreshUser).toHaveBeenCalled();
+      });
+    });
+
+    it("shows delete organization for owners", () => {
+      mockAuthValue = {
+        user: { id: "u1", displayName: "John", email: "john@test.com", role: "owner", organizations: [{ id: "org1", name: "Test Church", role: "admin" }] },
+        activeOrg: { id: "org1", name: "Test Church", role: "admin" },
+        refreshUser: mockRefreshUser,
+      };
+
+      renderPage();
+      expect(screen.getByRole("button", { name: /delete organization/i })).toBeInTheDocument();
+    });
+
+    it("deletes the organization for owners after confirmation", async () => {
+      mockAuthValue = {
+        user: { id: "u1", displayName: "John", email: "john@test.com", role: "owner", organizations: [{ id: "org1", name: "Test Church", role: "admin" }] },
+        activeOrg: { id: "org1", name: "Test Church", role: "admin" },
+        refreshUser: mockRefreshUser,
+      };
+
+      renderPage();
+      const user = userEvent.setup();
+      await user.click(screen.getByRole("button", { name: /delete organization/i }));
+
+      await waitFor(() => {
+        expect(mockRemoveOrg).toHaveBeenCalledWith("org1");
+        expect(mockRefreshUser).toHaveBeenCalled();
+      });
     });
 
     it("calls setTheme when theme button clicked", async () => {
@@ -213,6 +287,21 @@ describe("SettingsPage", () => {
       await waitFor(() => {
         expect(toast.error).toHaveBeenCalledWith("Wrong current password");
       });
+    });
+
+    it("shows error when organization name is empty", async () => {
+      const { toast } = await import("sonner");
+      renderPage();
+      const user = userEvent.setup();
+
+      const orgInput = screen.getByLabelText(/organization name/i);
+      await user.clear(orgInput);
+      await user.click(screen.getByRole("button", { name: /save organization/i }));
+
+      await waitFor(() => {
+        expect(toast.error).toHaveBeenCalledWith("Organization name is required");
+      });
+      expect(mockUpdateOrg).not.toHaveBeenCalled();
     });
   });
 });
