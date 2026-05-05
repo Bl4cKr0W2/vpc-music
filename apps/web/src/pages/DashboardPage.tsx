@@ -3,7 +3,8 @@ import { Link } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { songsApi, setlistsApi, eventsApi, songUsageApi, type Song, type Setlist, type Event } from "@/lib/api-client";
 import { TempoIndicator } from "@/components/songs/TempoIndicator";
-import { Music, ListMusic, Plus, Search, Calendar, MapPin, TrendingUp, AlertCircle } from "lucide-react";
+import { CreateOrgDialog } from "@/components/shared/CreateOrgDialog";
+import { Music, ListMusic, Plus, Search, Calendar, MapPin, TrendingUp, AlertCircle, Building2 } from "lucide-react";
 
 function formatEventDate(iso: string): string {
   const d = new Date(iso);
@@ -17,13 +18,20 @@ function formatEventDate(iso: string): string {
 }
 
 export function DashboardPage() {
-  const { user, activeOrg } = useAuth();
+  const { user, activeOrg, switchOrg, refreshUser } = useAuth();
   const canEdit = user?.role === "owner" || activeOrg?.role === "admin" || activeOrg?.role === "musician";
   const [recentSongs, setRecentSongs] = useState<Song[]>([]);
   const [frequentSongs, setFrequentSongs] = useState<(Song & { useCount: number; lastUsed: string })[]>([]);
   const [setlists, setSetlists] = useState<Setlist[]>([]);
   const [upcomingEvents, setUpcomingEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showCreateOrgDialog, setShowCreateOrgDialog] = useState(false);
+  const noOrg = user && (!user.organizations || user.organizations.length === 0);
+
+  const handleOrganizationCreated = async (organization: { id: string }) => {
+    switchOrg(organization.id);
+    await refreshUser();
+  };
 
   useEffect(() => {
     async function load() {
@@ -49,6 +57,29 @@ export function DashboardPage() {
 
   return (
     <div className="space-y-8">
+      {noOrg && (
+        <div className="card-empty bg-[hsl(var(--muted))]">
+          <Building2 className="mx-auto h-10 w-10 text-[hsl(var(--muted-foreground))]" />
+          <h2 className="mt-3 text-lg font-medium">No organization yet</h2>
+          <p className="mt-1 text-sm text-[hsl(var(--muted-foreground))]">
+            You&apos;re not a member of any organization. Ask your worship team leader for an invite, or create a new organization.
+          </p>
+          <button
+            type="button"
+            onClick={() => setShowCreateOrgDialog(true)}
+            className="btn-primary mt-4"
+          >
+            Create organization
+          </button>
+        </div>
+      )}
+
+      <CreateOrgDialog
+        open={showCreateOrgDialog}
+        onClose={() => setShowCreateOrgDialog(false)}
+        onCreated={handleOrganizationCreated}
+      />
+
       {/* Greeting */}
       <div>
         <h2 className="page-title">
